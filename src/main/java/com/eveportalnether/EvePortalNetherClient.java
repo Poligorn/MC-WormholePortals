@@ -15,6 +15,8 @@ import com.eveportalnether.network.ShakePayload;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.ViewportEvent;
 import com.eveportalnether.registry.ModBlocks;
+import com.eveportalnether.registry.ModItems;
+import com.eveportalnether.world.PortalColor;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
@@ -36,6 +38,7 @@ public class EvePortalNetherClient {
     public EvePortalNetherClient(ModContainer container, IEventBus modBus) {
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
         modBus.addListener(EvePortalNetherClient::registerBlockColors);
+        modBus.addListener(EvePortalNetherClient::registerItemColors);
         modBus.addListener((RegisterGuiLayersEvent event) -> {
             event.registerAboveAll(TransitScreen.LAYER_ID, TransitScreen::renderArrival);
             event.registerAboveAll(ScanPanel.LAYER_ID, ScanPanel::render);
@@ -72,11 +75,22 @@ public class EvePortalNetherClient {
 
     private static void registerBlockColors(RegisterColorHandlersEvent.Block event) {
         event.register((state, level, pos, tintIndex) -> {
-            if (tintIndex != 0 || state.getValue(WormholeBlock.FRAME)) {
+            if (tintIndex != 0) {
                 return 0xFFFFFFFF;
+            }
+            // Frame overlay is the coloured grout; the window still greys out as the portal dies.
+            if (state.getValue(WormholeBlock.FRAME)) {
+                return 0xFF000000 | state.getValue(WormholeBlock.COLOR).rgb();
             }
             return 0xFF000000 | state.getValue(WormholeBlock.COLOR).tint(state.getValue(WormholeBlock.DECAY));
         }, ModBlocks.WORMHOLE.get());
+    }
+
+    private static void registerItemColors(RegisterColorHandlersEvent.Item event) {
+        event.register((stack, tintIndex) -> tintIndex == 0
+                ? 0xFF000000 | PortalColor.BLUE.rgb()
+                : 0xFFFFFFFF,
+                ModItems.WORMHOLE_ITEM.get());
     }
 
     private static void onRenderNameTag(RenderNameTagEvent event) {
