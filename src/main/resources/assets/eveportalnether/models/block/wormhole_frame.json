@@ -1,6 +1,35 @@
 {
-  "parent": "minecraft:block/cube_all",
+  "parent": "minecraft:block/block",
+  "render_type": "minecraft:cutout_mipped",
   "textures": {
-    "all": "eveportalnether:block/wormhole_frame"
-  }
+    "particle": "eveportalnether:block/wormhole_frame",
+    "all": "eveportalnether:block/wormhole_frame",
+    "seams": "eveportalnether:block/wormhole_frame_seams"
+  },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to": [16, 16, 16],
+      "faces": {
+        "down":  { "texture": "#all", "cullface": "down" },
+        "up":    { "texture": "#all", "cullface": "up" },
+        "north": { "texture": "#all", "cullface": "north" },
+        "south": { "texture": "#all", "cullface": "south" },
+        "west":  { "texture": "#all", "cullface": "west" },
+        "east":  { "texture": "#all", "cullface": "east" }
+      }
+    },
+    {
+      "from": [0, 0, 0],
+      "to": [16, 16, 16],
+      "faces": {
+        "down":  { "texture": "#seams", "cullface": "down", "tintindex": 0 },
+        "up":    { "texture": "#seams", "cullface": "up", "tintindex": 0 },
+        "north": { "texture": "#seams", "cullface": "north", "tintindex": 0 },
+        "south": { "texture": "#seams", "cullface": "south", "tintindex": 0 },
+        "west":  { "texture": "#seams", "cullface": "west", "tintindex": 0 },
+        "east":  { "texture": "#seams", "cullface": "east", "tintindex": 0 }
+      }
+    }
+  ]
 }

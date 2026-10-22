@@ -109,6 +109,20 @@ public final class PortalEffects {
         }
     }
 
+    /**
+     * Low drone for the portal's whole lifetime. {@link Config#HUM_RANGE} is the hearing distance:
+     * the sound engine maps 16 blocks of range to a volume of 1, and the actual loudness stays capped.
+     */
+    public static void hum(ServerLevel level, PortalPair pair) {
+        int range = Config.HUM_RANGE.get();
+        if (range <= 0) {
+            return;
+        }
+        float volume = Math.max(range, 16) / 16.0F;
+        Vec3 center = center(level, pair);
+        level.playSound(null, center.x, center.y, center.z, ModSounds.PORTAL_HUM.get(), SoundSource.BLOCKS, volume, 1.0F);
+    }
+
     public static void formingStarted(ServerLevel level, PortalPair pair) {
         if (!isLoaded(level, pair)) {
             return;

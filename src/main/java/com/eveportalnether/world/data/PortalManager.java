@@ -158,6 +158,11 @@ public class PortalManager extends SavedData {
                     PortalEffects.spiral(level, pair);
                 }
             }
+            if (!pair.isExpired() && time % 80 == 0) {
+                for (ServerLevel level : sides(server)) {
+                    PortalEffects.hum(level, pair);
+                }
+            }
         }
         if (!expired.isEmpty()) {
             setDirty();

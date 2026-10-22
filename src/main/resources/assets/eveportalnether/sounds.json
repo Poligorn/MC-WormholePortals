@@ -76,5 +76,15 @@
     "sounds": [
       { "name": "minecraft:block.amethyst_block.resonate", "type": "event" }
     ]
+  },
+  "portal.hum": {
+    "subtitle": "subtitles.eveportalnether.portal.hum",
+    "sounds": [
+      {
+        "name": "minecraft:block/beacon/ambient",
+        "volume": 1.0,
+        "pitch": 0.65
+      }
+    ]
   }
 }

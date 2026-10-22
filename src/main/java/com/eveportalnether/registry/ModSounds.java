@@ -24,6 +24,7 @@ public class ModSounds {
     public static final DeferredHolder<SoundEvent, SoundEvent> PORTAL_CRACKLE = register("portal.crackle");
     public static final DeferredHolder<SoundEvent, SoundEvent> PORTAL_CHARGE = register("portal.charge");
     public static final DeferredHolder<SoundEvent, SoundEvent> PORTAL_RUMBLE = register("portal.rumble");
+    public static final DeferredHolder<SoundEvent, SoundEvent> PORTAL_HUM = register("portal.hum");
 
     private static DeferredHolder<SoundEvent, SoundEvent> register(String name) {
         return SOUNDS.register(name, () -> SoundEvent.createVariableRangeEvent(
