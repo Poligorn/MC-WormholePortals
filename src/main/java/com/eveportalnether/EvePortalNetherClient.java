@@ -15,6 +15,8 @@ import com.eveportalnether.network.ShakePayload;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.ViewportEvent;
 import com.eveportalnether.registry.ModBlocks;
+import com.eveportalnether.registry.ModItems;
+import com.eveportalnether.world.PortalColor;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
@@ -36,6 +38,7 @@ public class EvePortalNetherClient {
     public EvePortalNetherClient(ModContainer container, IEventBus modBus) {
         container.registerExtensionPoint(IConfigScreenFactory.class, ConfigurationScreen::new);
         modBus.addListener(EvePortalNetherClient::registerBlockColors);
+        modBus.addListener(EvePortalNetherClient::registerItemColors);
         modBus.addListener((RegisterGuiLayersEvent event) -> {
             event.registerAboveAll(TransitScreen.LAYER_ID, TransitScreen::renderArrival);
             event.registerAboveAll(ScanPanel.LAYER_ID, ScanPanel::render);
@@ -72,13 +75,45 @@ public class EvePortalNetherClient {
 
     private static void registerBlockColors(RegisterColorHandlersEvent.Block event) {
         event.register((state, level, pos, tintIndex) -> {
-            // The frame's seams are an animated texture, so they are not tinted.
-            // The window still greys out as the portal dies.
-            if (tintIndex != 0 || state.getValue(WormholeBlock.FRAME)) {
+            if (tintIndex != 0) {
                 return 0xFFFFFFFF;
+            }
+            // Placed frames, including the portal itself, keep that portal's colour.
+            // The window greys out as the portal dies.
+            if (state.getValue(WormholeBlock.FRAME)) {
+                return 0xFF000000 | state.getValue(WormholeBlock.COLOR).rgb();
             }
             return 0xFF000000 | state.getValue(WormholeBlock.COLOR).tint(state.getValue(WormholeBlock.DECAY));
         }, ModBlocks.WORMHOLE.get());
+    }
+
+    /**
+     * The creative-inventory item is not a portal frame, so its seams cycle.
+     * A placed block uses {@link #registerBlockColors} instead.
+     */
+    private static void registerItemColors(RegisterColorHandlersEvent.Item event) {
+        event.register((stack, tintIndex) -> tintIndex == 0 ? cyclingSeamColor() : 0xFFFFFFFF,
+                ModItems.WORMHOLE_ITEM.get());
+    }
+
+    private static final int ITEM_COLOR_TICKS = 30;
+
+    private static int cyclingSeamColor() {
+        PortalColor[] colors = PortalColor.values();
+        // Real time, so the colour still moves while the creative screen pauses the world.
+        float time = (System.nanoTime() / 1.0E9F) * 20.0F;
+        float frame = time / ITEM_COLOR_TICKS;
+        int index = Math.floorMod((int) Math.floor(frame), colors.length);
+        int next = (index + 1) % colors.length;
+        float blend = frame - (float) Math.floor(frame);
+        return 0xFF000000 | lerp(colors[index].rgb(), colors[next].rgb(), blend);
+    }
+
+    private static int lerp(int from, int to, float blend) {
+        int r = (int) ((((from >> 16) & 0xFF) * (1.0F - blend)) + (((to >> 16) & 0xFF) * blend));
+        int g = (int) ((((from >> 8) & 0xFF) * (1.0F - blend)) + (((to >> 8) & 0xFF) * blend));
+        int b = (int) (((from & 0xFF) * (1.0F - blend)) + ((to & 0xFF) * blend));
+        return (r << 16) | (g << 8) | b;
     }
 
     private static void onRenderNameTag(RenderNameTagEvent event) {

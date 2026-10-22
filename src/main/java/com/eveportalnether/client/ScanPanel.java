@@ -20,9 +20,6 @@ public final class ScanPanel {
     private static final ResourceLocation FRAME_SEAM_TEXTURE = ResourceLocation.fromNamespaceAndPath(EvePortalNether.MODID, "textures/block/wormhole_frame_seams.png");
     private static final ResourceLocation WINDOW_TEXTURE = ResourceLocation.fromNamespaceAndPath(EvePortalNether.MODID, "textures/block/wormhole_center.png");
     private static final int WINDOW_FRAMES = 32;
-    /** Matches wormhole_frame_seams.png.mcmeta and the nine portal colours stacked in that texture. */
-    private static final int SEAM_FRAMES = 9;
-    private static final int SEAM_FRAMETIME = 30;
 
     private static final int WIDTH = 250;
     private static final int HEIGHT = 102;
@@ -176,13 +173,12 @@ public final class ScanPanel {
                 }
             }
         }
-        g.setColor(1.0F, 1.0F, 1.0F, alpha);
-        int seamFrame = Math.floorMod((int) (now / SEAM_FRAMETIME), SEAM_FRAMES);
+        int seam = data.color().rgb();
+        g.setColor(((seam >> 16) & 0xFF) / 255.0F, ((seam >> 8) & 0xFF) / 255.0F, (seam & 0xFF) / 255.0F, alpha);
         for (int cx = 0; cx < w; cx++) {
             for (int cy = 0; cy < h; cy++) {
                 if (cx == 0 || cy == 0 || cx == w - 1 || cy == h - 1) {
-                    g.blit(FRAME_SEAM_TEXTURE, ox + cx * cell, oy + cy * cell, cell, cell,
-                            0, seamFrame * 16, 16, 16, 16, 16 * SEAM_FRAMES);
+                    g.blit(FRAME_SEAM_TEXTURE, ox + cx * cell, oy + cy * cell, cell, cell, 0, 0, 16, 16, 16, 16);
                 }
             }
         }
