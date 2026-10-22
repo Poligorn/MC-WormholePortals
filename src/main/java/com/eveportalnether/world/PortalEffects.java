@@ -110,12 +110,17 @@ public final class PortalEffects {
     }
 
     /**
-     * Low drone that plays for the portal's whole lifetime. {@link com.eveportalnether.registry.ModSounds#HUM_RANGE}
-     * is 300 blocks so it can be heard long before the frame is visible.
+     * Low drone for the portal's whole lifetime. {@link Config#HUM_RANGE} is the hearing distance:
+     * the sound engine maps 16 blocks of range to a volume of 1, and the actual loudness stays capped.
      */
     public static void hum(ServerLevel level, PortalPair pair) {
+        int range = Config.HUM_RANGE.get();
+        if (range <= 0) {
+            return;
+        }
+        float volume = Math.max(range, 16) / 16.0F;
         Vec3 center = center(level, pair);
-        level.playSound(null, center.x, center.y, center.z, ModSounds.PORTAL_HUM.get(), SoundSource.BLOCKS, 1.0F, 1.0F);
+        level.playSound(null, center.x, center.y, center.z, ModSounds.PORTAL_HUM.get(), SoundSource.BLOCKS, volume, 1.0F);
     }
 
     public static void formingStarted(ServerLevel level, PortalPair pair) {

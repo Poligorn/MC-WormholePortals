@@ -11,9 +11,6 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 public class ModSounds {
     public static final DeferredRegister<SoundEvent> SOUNDS = DeferredRegister.create(Registries.SOUND_EVENT, EvePortalNether.MODID);
 
-    /** Distance at which the living-portal drone is still audible. */
-    public static final float HUM_RANGE = 300.0F;
-
     public static final DeferredHolder<SoundEvent, SoundEvent> RADAR_CHARGE = register("radar.charge");
     public static final DeferredHolder<SoundEvent, SoundEvent> RADAR_EMPTY = register("radar.empty");
     public static final DeferredHolder<SoundEvent, SoundEvent> RADAR_PING = register("radar.ping");
@@ -27,16 +24,11 @@ public class ModSounds {
     public static final DeferredHolder<SoundEvent, SoundEvent> PORTAL_CRACKLE = register("portal.crackle");
     public static final DeferredHolder<SoundEvent, SoundEvent> PORTAL_CHARGE = register("portal.charge");
     public static final DeferredHolder<SoundEvent, SoundEvent> PORTAL_RUMBLE = register("portal.rumble");
-    public static final DeferredHolder<SoundEvent, SoundEvent> PORTAL_HUM = registerFixed("portal.hum", HUM_RANGE);
+    public static final DeferredHolder<SoundEvent, SoundEvent> PORTAL_HUM = register("portal.hum");
 
     private static DeferredHolder<SoundEvent, SoundEvent> register(String name) {
         return SOUNDS.register(name, () -> SoundEvent.createVariableRangeEvent(
                 ResourceLocation.fromNamespaceAndPath(EvePortalNether.MODID, name)));
-    }
-
-    private static DeferredHolder<SoundEvent, SoundEvent> registerFixed(String name, float range) {
-        return SOUNDS.register(name, () -> SoundEvent.createFixedRangeEvent(
-                ResourceLocation.fromNamespaceAndPath(EvePortalNether.MODID, name), range));
     }
 
     public static void register(IEventBus eventBus) {

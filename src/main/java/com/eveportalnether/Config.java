@@ -131,6 +131,10 @@ public class Config {
         BUILDER.push("effects");
     }
 
+    public static final ModConfigSpec.IntValue HUM_RANGE = BUILDER
+            .comment("How far a living portal's hum can be heard, in blocks. 0 disables the hum. Values from 1 to 15 are treated as 16, the shortest distance the sound engine can use")
+            .defineInRange("humRange", 100, 0, 1024);
+
     public static final ModConfigSpec.IntValue FORMING_TICKS = BUILDER
             .comment("How long a new portal charges up before it can be entered (100 = 5 sec)")
             .defineInRange("formingTicks", 100, 0, 1200);
