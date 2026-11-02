@@ -202,15 +202,33 @@ public class PortalManager extends SavedData {
 
     private static boolean hasWormholeBlocks(ServerLevel level, PortalPair pair) {
         BlockPos origin = pair.getOrigin(level.dimension());
-        for (int across = 0; across < pair.getWidth(); across++) {
-            for (int up = 0; up < pair.getHeight(); up++) {
-                BlockPos pos = PortalShape.offset(origin, across, up, pair.getAxis());
-                if (level.getBlockState(pos).getBlock() instanceof WormholeBlock) {
-                    return true;
-                }
+        Direction.Axis axis = pair.getAxis();
+        int width = pair.getWidth();
+        int height = pair.getHeight();
+        if (isWormhole(level, pair.getStandPos(level.dimension())) || isWormhole(level, origin)) {
+            return true;
+        }
+        if (isWormhole(level, PortalShape.offset(origin, width - 1, height - 1, axis))) {
+            return true;
+        }
+        // Frame only: O(width+height) instead of the full rectangle, which is 2500 blocks at size 50.
+        for (int across = 0; across < width; across++) {
+            if (isWormhole(level, PortalShape.offset(origin, across, 0, axis))
+                    || isWormhole(level, PortalShape.offset(origin, across, height - 1, axis))) {
+                return true;
+            }
+        }
+        for (int up = 1; up < height - 1; up++) {
+            if (isWormhole(level, PortalShape.offset(origin, 0, up, axis))
+                    || isWormhole(level, PortalShape.offset(origin, width - 1, up, axis))) {
+                return true;
             }
         }
         return false;
+    }
+
+    private static boolean isWormhole(ServerLevel level, BlockPos pos) {
+        return level.getBlockState(pos).getBlock() instanceof WormholeBlock;
     }
 
     private void syncDecay(MinecraftServer server) {

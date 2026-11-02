@@ -73,7 +73,7 @@ Find them with the Portal Radar, read them with the Portal Detector.
     # Optional field describing why the dependency is required or why it is incompatible
     # reason="..."
     # The version range of the dependency
-    versionRange="[${neo_version},)" #mandatory
+    versionRange="${neo_version_range}" #mandatory
     # An ordering relationship for the dependency.
     # BEFORE - This mod is loaded BEFORE the dependency
     # AFTER - This mod is loaded AFTER the dependency
@@ -88,6 +88,23 @@ Find them with the Portal Radar, read them with the Portal Detector.
     # This version range declares a minimum of the current minecraft version up to but not including the next major version
     versionRange="${minecraft_version_range}"
     ordering="NONE"
+    side="BOTH"
+
+# Optional: Create Aeronautics ships pass through wormholes when AeroPortals is installed.
+# compileOnly + ModList.isLoaded guard; Wormholes still works without it.
+# FML version is the trailing 1.3.x (Maven artifact is 1.21.1-1.3.x).
+[[dependencies.${mod_id}]]
+    modId="aeroportals"
+    type="optional"
+    versionRange="[1.3.0,2.0.0)"
+    ordering="AFTER"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="sable"
+    type="optional"
+    versionRange="[2.0.3,3.0.0)"
+    ordering="AFTER"
     side="BOTH"
 
 # Features are specific properties of the game environment, that you may want to declare you require. This example declares

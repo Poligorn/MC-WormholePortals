@@ -146,7 +146,7 @@ public final class ScanPanel {
 
         int w = Math.max(3, data.width());
         int h = Math.max(4, data.height());
-        int cell = Math.max(3, Math.min((bw - 8) / w, (bh - 8) / h));
+        int cell = Math.max(1, Math.min((bw - 8) / w, (bh - 8) / h));
         int pw = cell * w;
         int ph = cell * h;
         int ox = bx + (bw - pw) / 2;
@@ -159,16 +159,28 @@ public final class ScanPanel {
         float flicker = data.stage() >= 2 ? 0.75F + 0.25F * (float) Math.sin(now * 0.9F) : 1.0F;
         g.setColor(((tint >> 16) & 0xFF) / 255.0F * flicker, ((tint >> 8) & 0xFF) / 255.0F * flicker, (tint & 0xFF) / 255.0F * flicker, alpha);
         int frame = ((int) (now / 2)) % WINDOW_FRAMES;
-        for (int cx = 1; cx < w - 1; cx++) {
-            for (int cy = 1; cy < h - 1; cy++) {
-                g.blit(WINDOW_TEXTURE, ox + cx * cell, oy + cy * cell, cell, cell, 0, frame * 16, 16, 16, 16, 16 * WINDOW_FRAMES);
+        boolean compact = cell <= 1 || w * h > 256;
+        if (compact) {
+            g.fill(ox + cell, oy + cell, ox + pw - cell, oy + ph - cell, argb(alpha * 0.85F, tint));
+        } else {
+            for (int cx = 1; cx < w - 1; cx++) {
+                for (int cy = 1; cy < h - 1; cy++) {
+                    g.blit(WINDOW_TEXTURE, ox + cx * cell, oy + cy * cell, cell, cell, 0, frame * 16, 16, 16, 16, 16 * WINDOW_FRAMES);
+                }
             }
         }
         g.setColor(1.0F, 1.0F, 1.0F, alpha);
-        for (int cx = 0; cx < w; cx++) {
-            for (int cy = 0; cy < h; cy++) {
-                if (cx == 0 || cy == 0 || cx == w - 1 || cy == h - 1) {
-                    g.blit(FRAME_TEXTURE, ox + cx * cell, oy + cy * cell, cell, cell, 0, 0, 16, 16, 16, 16);
+        if (compact) {
+            g.fill(ox, oy, ox + pw, oy + cell, argb(alpha, 0x2A3440));
+            g.fill(ox, oy + ph - cell, ox + pw, oy + ph, argb(alpha, 0x2A3440));
+            g.fill(ox, oy, ox + cell, oy + ph, argb(alpha, 0x2A3440));
+            g.fill(ox + pw - cell, oy, ox + pw, oy + ph, argb(alpha, 0x2A3440));
+        } else {
+            for (int cx = 0; cx < w; cx++) {
+                for (int cy = 0; cy < h; cy++) {
+                    if (cx == 0 || cy == 0 || cx == w - 1 || cy == h - 1) {
+                        g.blit(FRAME_TEXTURE, ox + cx * cell, oy + cy * cell, cell, cell, 0, 0, 16, 16, 16, 16);
+                    }
                 }
             }
         }

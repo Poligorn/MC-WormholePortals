@@ -31,6 +31,24 @@ repositories {
     // Add here additional repositories if required by some of the dependencies below.
     maven { url = "https://maven.createmod.net" } // Create, Ponder, Flywheel
     maven { url = "https://maven.ithundxr.dev/snapshots" } // Registrate
+    maven {
+        name = "BreakInBlocks"
+        url = "https://maven.breakinblocks.com/releases"
+        content { includeGroup("com.breakinblocks.aeroportals") }
+    }
+    maven {
+        name = "RyanHCode"
+        url = "https://maven.ryanhcode.dev/releases"
+        content {
+            includeGroup("dev.ryanhcode.sable")
+            includeGroup("dev.ryanhcode.sable-companion")
+        }
+    }
+    maven {
+        name = "CurseMaven"
+        url = "https://cursemaven.com"
+        content { includeGroup("curse.maven") }
+    }
 }
 
 base {
@@ -72,6 +90,7 @@ neoForge {
         gameTestServer {
             type = "gameTestServer"
             systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            gameDirectory = project.file('run-gametest')
         }
 
         data {
@@ -118,6 +137,11 @@ configurations {
 }
 
 dependencies {
+    // Optional AeroPortals adapter. compileOnly so the jar is not bundled (no jarJar)
+    // and Wormholes still loads when AeroPortals / Sable are absent.
+    compileOnly("com.breakinblocks.aeroportals:aeroportals:${aeroportals_version}") { transitive = false }
+    compileOnly("dev.ryanhcode.sable:sable-neoforge-1.21.1:${sable_version}") { transitive = false }
+
     // Create mod and dependencies
     // implementation("com.simibubi.create:create-${minecraft_version}:${create_version}:slim") { transitive = false }
     // implementation("net.createmod.ponder:ponder-neoforge:${ponder_version}+mc${minecraft_version}")
@@ -154,7 +178,9 @@ var generateModMetadata = tasks.register("generateModMetadata", ProcessResources
             minecraft_version      : minecraft_version,
             minecraft_version_range: minecraft_version_range,
             neo_version            : neo_version,
+            neo_version_range      : neo_version_range,
             loader_version_range   : loader_version_range,
+            aeroportals_version    : aeroportals_version,
             mod_id                 : mod_id,
             mod_name               : mod_name,
             mod_license            : mod_license,

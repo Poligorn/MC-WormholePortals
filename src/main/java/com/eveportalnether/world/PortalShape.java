@@ -4,30 +4,60 @@ import com.eveportalnether.Config;
 import com.eveportalnether.block.WormholeBlock;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.Fluids;
+import net.minecraft.world.phys.Vec3;
 
 public final class PortalShape {
+    private static final int LANDING_POCKET_WIDTH = 5;
+    private static final int LANDING_POCKET_HEIGHT = 4;
+
     private PortalShape() {
     }
 
     public static int rollWidth(PortalTier tier, RandomSource random) {
-        return rollSize(tier, random, Config.MIN_PORTAL_WIDTH.get(), Config.MAX_PORTAL_WIDTH.get());
+        return rollBetween(random, minWidth(tier), maxWidth(tier));
     }
 
     public static int rollHeight(PortalTier tier, RandomSource random) {
-        return rollSize(tier, random, Config.MIN_PORTAL_HEIGHT.get(), Config.MAX_PORTAL_HEIGHT.get());
+        return rollBetween(random, minHeight(tier), maxHeight(tier));
     }
 
-    private static int rollSize(PortalTier tier, RandomSource random, int min, int max) {
+    public static int minWidth(PortalTier tier) {
+        return clampWidth(Math.min(tier.spec().minWidth.get(), tier.spec().maxWidth.get()));
+    }
+
+    public static int maxWidth(PortalTier tier) {
+        return clampWidth(Math.max(tier.spec().minWidth.get(), tier.spec().maxWidth.get()));
+    }
+
+    public static int minHeight(PortalTier tier) {
+        return clampHeight(Math.min(tier.spec().minHeight.get(), tier.spec().maxHeight.get()));
+    }
+
+    public static int maxHeight(PortalTier tier) {
+        return clampHeight(Math.max(tier.spec().minHeight.get(), tier.spec().maxHeight.get()));
+    }
+
+    private static int clampWidth(int value) {
+        int lo = Math.max(3, Config.MIN_PORTAL_WIDTH.get());
+        int hi = Math.min(Config.PORTAL_OUTER_SIZE_CAP, Math.max(lo, Config.MAX_PORTAL_WIDTH.get()));
+        return Mth.clamp(value, lo, hi);
+    }
+
+    private static int clampHeight(int value) {
+        int lo = Math.max(4, Config.MIN_PORTAL_HEIGHT.get());
+        int hi = Math.min(Config.PORTAL_OUTER_SIZE_CAP, Math.max(lo, Config.MAX_PORTAL_HEIGHT.get()));
+        return Mth.clamp(value, lo, hi);
+    }
+
+    private static int rollBetween(RandomSource random, int min, int max) {
         max = Math.max(min, max);
-        int mid = (min + max) / 2;
-        int low = tier == PortalTier.MASSIVE ? mid : min;
-        int high = tier == PortalTier.UNSTABLE ? mid : max;
-        return low + random.nextInt(high - low + 1);
+        return min + random.nextInt(max - min + 1);
     }
 
     public static BlockPos offset(BlockPos origin, int across, int up, Direction.Axis axis) {
@@ -45,14 +75,25 @@ public final class PortalShape {
     }
 
     public static boolean contains(BlockPos origin, Direction.Axis axis, int width, int height, BlockPos pos) {
-        for (int across = 0; across < width; across++) {
-            for (int up = 0; up < height; up++) {
-                if (offset(origin, across, up, axis).equals(pos)) {
-                    return true;
-                }
-            }
+        int up = pos.getY() - origin.getY();
+        if (up < 0 || up >= height) {
+            return false;
         }
-        return false;
+        if (axis == Direction.Axis.X) {
+            return pos.getX() == origin.getX()
+                    && pos.getZ() >= origin.getZ()
+                    && pos.getZ() < origin.getZ() + width;
+        }
+        return pos.getZ() == origin.getZ()
+                && pos.getX() >= origin.getX()
+                && pos.getX() < origin.getX() + width;
+    }
+
+    public static Vec3 windowCenter(BlockPos origin, Direction.Axis axis, int width, int height) {
+        Vec3 corner = Vec3.atLowerCornerOf(origin);
+        double across = width / 2.0;
+        double up = height / 2.0;
+        return axis == Direction.Axis.X ? corner.add(0.5, up, across) : corner.add(across, up, 0.5);
     }
 
     public static boolean isVolumeReplaceable(Level level, BlockPos origin, Direction.Axis axis, int width, int height) {
@@ -84,12 +125,23 @@ public final class PortalShape {
     /**
      * Clears a short air pocket on both faces of the inner window so a player
      * is not entombed in netherrack and can mine blocks beyond the portal.
+     * Limited to a vanilla-sized patch around the stand column so a 50-block
+     * portal does not flatten thousands of blocks on every crossing.
      */
     public static void carveLandingPocket(Level level, BlockPos origin, Direction.Axis axis, int width, int height) {
         Direction.Axis normal = axis == Direction.Axis.X ? Direction.Axis.Z : Direction.Axis.X;
+        int innerW = Math.max(0, width - 2);
+        int innerH = Math.max(0, height - 2);
+        int pocketW = Math.min(innerW, LANDING_POCKET_WIDTH);
+        int pocketH = Math.min(innerH, LANDING_POCKET_HEIGHT);
+        int startAcross = 1 + Math.max(0, (innerW - pocketW) / 2);
+        int endAcross = startAcross + pocketW;
+        int startUp = 1;
+        int endUp = 1 + pocketH;
+
         for (int side : new int[] {-2, -1, 1, 2}) {
-            for (int across = 1; across < width - 1; across++) {
-                for (int up = 1; up < height - 1; up++) {
+            for (int across = startAcross; across < endAcross; across++) {
+                for (int up = startUp; up < endUp; up++) {
                     BlockPos onPortal = offset(origin, across, up, axis);
                     BlockPos pocket = onPortal.relative(Direction.fromAxisAndDirection(normal, side > 0
                             ? Direction.AxisDirection.POSITIVE
@@ -101,7 +153,7 @@ public final class PortalShape {
 
         // Stable floor just in front of the window, both sides.
         for (int side : new int[] {-1, 1}) {
-            for (int across = 1; across < width - 1; across++) {
+            for (int across = startAcross; across < endAcross; across++) {
                 BlockPos window = offset(origin, across, 1, axis);
                 BlockPos floor = window.relative(Direction.fromAxisAndDirection(normal, side > 0
                         ? Direction.AxisDirection.POSITIVE
