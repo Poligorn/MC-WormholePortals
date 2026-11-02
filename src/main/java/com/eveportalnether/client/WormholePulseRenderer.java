@@ -5,6 +5,7 @@ import com.eveportalnether.block.WormholeBlock;
 import com.eveportalnether.block.entity.WormholeBlockEntity;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
@@ -38,6 +39,9 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
         }
         BlockPos pos = entity.getBlockPos();
         Direction.Axis axis = state.getValue(WormholeBlock.AXIS);
+        if (shouldSkipLod(pos)) {
+            return;
+        }
         int decay = state.getValue(WormholeBlock.DECAY);
         int rgb = state.getValue(WormholeBlock.COLOR).tint(decay);
         float time = entity.getLevel().getGameTime() + partialTick;
@@ -73,6 +77,20 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
                 vertex(consumer, pose, 0, 1, depth, u0, v0, r, g, b, a, 0, 0, 1);
             }
         }
+    }
+
+    /**
+     * Drop every other (then three of four) window quads as the camera pulls
+     * away so a 50×50 portal does not submit thousands of translucent faces.
+     */
+    private static boolean shouldSkipLod(BlockPos pos) {
+        var camera = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
+        double distSqr = camera.distanceToSqr(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
+        int parity = pos.getX() + pos.getY() + pos.getZ();
+        if (distSqr > 64 * 64 && (parity & 3) != 0) {
+            return true;
+        }
+        return distSqr > 32 * 32 && (parity & 1) != 0;
     }
 
     private static float alpha(int decay, float time, int y, int across) {

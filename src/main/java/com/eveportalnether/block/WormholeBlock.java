@@ -3,12 +3,14 @@ package com.eveportalnether.block;
 import com.eveportalnether.Config;
 import com.eveportalnether.advancement.WormholeEvents;
 import com.eveportalnether.block.entity.WormholeBlockEntity;
+import com.eveportalnether.compat.aeroportals.AeroPortalsHook;
 import com.eveportalnether.registry.ModEffects;
 import net.minecraft.ChatFormatting;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.effect.MobEffectInstance;
 import com.eveportalnether.registry.ModBlockEntities;
+import com.eveportalnether.registry.ModBlocks;
 import com.eveportalnether.registry.ModSounds;
 import com.eveportalnether.world.PortalEffects;
 import com.eveportalnether.world.PortalShape;
@@ -188,6 +190,9 @@ public class WormholeBlock extends BaseEntityBlock {
         if (state.getValue(FRAME)) {
             return;
         }
+        if (shouldSkipAmbient(level, state, pos, random)) {
+            return;
+        }
         int decay = state.getValue(DECAY);
         PortalColor color = state.getValue(COLOR);
         double x = pos.getX() + 0.5;
@@ -255,18 +260,26 @@ public class WormholeBlock extends BaseEntityBlock {
     @Nullable
     @Override
     public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
-        return new WormholeBlockEntity(pos, state);
+        return state.getValue(FRAME) ? null : new WormholeBlockEntity(pos, state);
     }
 
     @Nullable
     @Override
     public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> blockEntityType) {
+        if (state.getValue(FRAME)) {
+            return null;
+        }
         return createTickerHelper(blockEntityType, ModBlockEntities.WORMHOLE_BLOCK_ENTITY.get(), WormholeBlockEntity::tick);
     }
 
     @Override
     protected void entityInside(BlockState state, Level level, BlockPos pos, Entity entity) {
         if (state.getValue(FRAME) || level.isClientSide || !(entity instanceof Player player) || !(level instanceof ServerLevel serverLevel)) {
+            super.entityInside(state, level, pos, entity);
+            return;
+        }
+
+        if (AeroPortalsHook.shouldSkipPlayerTravel(player)) {
             super.entityInside(state, level, pos, entity);
             return;
         }
@@ -346,5 +359,35 @@ public class WormholeBlock extends BaseEntityBlock {
         }
 
         super.entityInside(state, level, pos, entity);
+    }
+
+    /**
+     * Keep particle and sound budget roughly constant as the window grows.
+     * A 4×5 portal is unchanged; a 50×50 window would otherwise emit thousands
+     * of portal particles and ambient sounds every tick.
+     */
+    private static boolean shouldSkipAmbient(Level level, BlockState state, BlockPos pos, RandomSource random) {
+        Direction.Axis axis = state.getValue(AXIS);
+        int skip = 1;
+        if (isWindow(level, pos.above(4)) && isWindow(level, across(pos, axis, 4))) {
+            skip = 8;
+            if (isWindow(level, pos.above(12)) && isWindow(level, across(pos, axis, 12))) {
+                skip = 32;
+            }
+        }
+        if (skip == 1) {
+            return false;
+        }
+        int digest = Math.floorMod(pos.getX() * 127 + pos.getY() * 311 + pos.getZ() * 431 + (int) level.getGameTime(), skip);
+        return digest != 0 && random.nextInt(4) != 0;
+    }
+
+    private static BlockPos across(BlockPos pos, Direction.Axis axis, int steps) {
+        return axis == Direction.Axis.X ? pos.offset(0, 0, steps) : pos.offset(steps, 0, 0);
+    }
+
+    private static boolean isWindow(Level level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        return state.is(ModBlocks.WORMHOLE.get()) && !state.getValue(FRAME);
     }
 }

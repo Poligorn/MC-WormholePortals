@@ -90,6 +90,23 @@ Find them with the Portal Radar, read them with the Portal Detector.
     ordering="NONE"
     side="BOTH"
 
+# Optional: Create Aeronautics ships pass through wormholes when AeroPortals is installed.
+# compileOnly + ModList.isLoaded guard; Wormholes still works without it.
+# FML version is the trailing 1.3.x (Maven artifact is 1.21.1-1.3.x).
+[[dependencies.${mod_id}]]
+    modId="aeroportals"
+    type="optional"
+    versionRange="[1.3.0,2.0.0)"
+    ordering="AFTER"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="sable"
+    type="optional"
+    versionRange="[2.0.3,3.0.0)"
+    ordering="AFTER"
+    side="BOTH"
+
 # Features are specific properties of the game environment, that you may want to declare you require. This example declares
 # that your mod requires GL version 3.2 or higher. Other features will be added. They are side aware so declaring this won't
 # stop your mod loading on the server for example.

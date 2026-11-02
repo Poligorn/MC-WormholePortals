@@ -45,30 +45,36 @@ public class Config {
             .comment("Chance (0-100) that a successful spawn is in mid-air instead of on the ground")
             .defineInRange("airSpawnChancePercent", 5, 0, 100);
 
+    /**
+     * Hard cap on outer frame width and height. Massive portals can roll up to this
+     * so a Create Aeronautics airship can fit through the inner window (size minus 2).
+     */
+    public static final int PORTAL_OUTER_SIZE_CAP = 50;
+
     public static final ModConfigSpec.IntValue MIN_PORTAL_WIDTH = BUILDER
-            .comment("Smallest outer frame width. Unstable portals roll the lower half of the range, massive ones the upper half")
-            .defineInRange("minPortalWidth", 4, 3, 32);
+            .comment("Absolute minimum outer frame width applied to every class after its own range is rolled")
+            .defineInRange("minPortalWidth", 4, 3, PORTAL_OUTER_SIZE_CAP);
 
     public static final ModConfigSpec.IntValue MAX_PORTAL_WIDTH = BUILDER
-            .comment("Largest outer frame width")
-            .defineInRange("maxPortalWidth", 7, 3, 32);
+            .comment("Absolute maximum outer frame width. Massive portals need 50 so airships can pass; existing configs that still say 7 should be raised")
+            .defineInRange("maxPortalWidth", PORTAL_OUTER_SIZE_CAP, 3, PORTAL_OUTER_SIZE_CAP);
 
     public static final ModConfigSpec.IntValue MIN_PORTAL_HEIGHT = BUILDER
-            .comment("Smallest outer frame height")
-            .defineInRange("minPortalHeight", 5, 4, 32);
+            .comment("Absolute minimum outer frame height applied to every class after its own range is rolled")
+            .defineInRange("minPortalHeight", 5, 4, PORTAL_OUTER_SIZE_CAP);
 
     public static final ModConfigSpec.IntValue MAX_PORTAL_HEIGHT = BUILDER
-            .comment("Largest outer frame height")
-            .defineInRange("maxPortalHeight", 8, 4, 32);
+            .comment("Absolute maximum outer frame height. Same cap as width")
+            .defineInRange("maxPortalHeight", PORTAL_OUTER_SIZE_CAP, 4, PORTAL_OUTER_SIZE_CAP);
 
     static {
         BUILDER.pop();
         BUILDER.push("tiers");
     }
 
-    public static final TierSpec UNSTABLE = new TierSpec("unstable", 50, 10, 20, 2, 4);
-    public static final TierSpec STANDARD = new TierSpec("standard", 40, 30, 40, 6, 10);
-    public static final TierSpec MASSIVE = new TierSpec("massive", 10, 60, 90, 15, 25);
+    public static final TierSpec UNSTABLE = new TierSpec("unstable", 50, 10, 20, 2, 4, 4, 8, 5, 10);
+    public static final TierSpec STANDARD = new TierSpec("standard", 40, 30, 40, 6, 10, 8, 16, 8, 20);
+    public static final TierSpec MASSIVE = new TierSpec("massive", 10, 60, 90, 15, 25, 16, PORTAL_OUTER_SIZE_CAP, 16, PORTAL_OUTER_SIZE_CAP);
 
     static {
         BUILDER.pop();
@@ -179,14 +185,23 @@ public class Config {
         public final ModConfigSpec.IntValue maxMinutes;
         public final ModConfigSpec.IntValue minUses;
         public final ModConfigSpec.IntValue maxUses;
+        public final ModConfigSpec.IntValue minWidth;
+        public final ModConfigSpec.IntValue maxWidth;
+        public final ModConfigSpec.IntValue minHeight;
+        public final ModConfigSpec.IntValue maxHeight;
 
-        private TierSpec(String name, int weight, int minMinutes, int maxMinutes, int minUses, int maxUses) {
+        private TierSpec(String name, int weight, int minMinutes, int maxMinutes, int minUses, int maxUses,
+                         int minWidth, int maxWidth, int minHeight, int maxHeight) {
             BUILDER.push(name);
             this.weight = BUILDER.comment("Relative spawn weight").defineInRange("weight", weight, 0, 1000);
             this.minMinutes = BUILDER.comment("Minimum lifetime in minutes").defineInRange("minMinutes", minMinutes, 1, 100000);
             this.maxMinutes = BUILDER.comment("Maximum lifetime in minutes").defineInRange("maxMinutes", maxMinutes, 1, 100000);
             this.minUses = BUILDER.comment("Minimum number of entries").defineInRange("minUses", minUses, 1, 100000);
             this.maxUses = BUILDER.comment("Maximum number of entries").defineInRange("maxUses", maxUses, 1, 100000);
+            this.minWidth = BUILDER.comment("Minimum outer frame width for this class").defineInRange("minWidth", minWidth, 3, PORTAL_OUTER_SIZE_CAP);
+            this.maxWidth = BUILDER.comment("Maximum outer frame width for this class").defineInRange("maxWidth", maxWidth, 3, PORTAL_OUTER_SIZE_CAP);
+            this.minHeight = BUILDER.comment("Minimum outer frame height for this class").defineInRange("minHeight", minHeight, 4, PORTAL_OUTER_SIZE_CAP);
+            this.maxHeight = BUILDER.comment("Maximum outer frame height for this class").defineInRange("maxHeight", maxHeight, 4, PORTAL_OUTER_SIZE_CAP);
             BUILDER.pop();
         }
     }

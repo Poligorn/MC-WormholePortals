@@ -37,14 +37,7 @@ public final class PortalEffects {
     }
 
     public static Vec3 center(ServerLevel level, PortalPair pair) {
-        BlockPos origin = pair.getOrigin(level.dimension());
-        Vec3 corner = Vec3.atLowerCornerOf(origin);
-        double across = pair.getWidth() / 2.0;
-        double up = pair.getHeight() / 2.0;
-        return switch (pair.getAxis()) {
-            case X -> corner.add(0.5, up, across);
-            default -> corner.add(across, up, 0.5);
-        };
+        return PortalShape.windowCenter(pair.getOrigin(level.dimension()), pair.getAxis(), pair.getWidth(), pair.getHeight());
     }
 
     /**
