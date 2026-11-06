@@ -107,6 +107,17 @@ Find them with the Portal Radar, read them with the Portal Detector.
     ordering="AFTER"
     side="BOTH"
 
+# Optional: after a successful detector scan, the scanning player sees the destination
+# through the wormhole for 60s when Immersive Portals 6.0.7 is installed.
+# compileOnly + ModList.isLoaded guard; Wormholes still works without it.
+# Cloth Config is required by Immersive Portals, not by this mod.
+[[dependencies.${mod_id}]]
+    modId="immersive_portals_core"
+    type="optional"
+    versionRange="[6.0.7,7.0.0)"
+    ordering="AFTER"
+    side="BOTH"
+
 # Features are specific properties of the game environment, that you may want to declare you require. This example declares
 # that your mod requires GL version 3.2 or higher. Other features will be added. They are side aware so declaring this won't
 # stop your mod loading on the server for example.

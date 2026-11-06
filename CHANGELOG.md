@@ -1,11 +1,20 @@
 # Changelog
 
-## Unreleased (1.0)
+## 1.0.0-alpha.1
 
-- Solid portal frame is no longer drawn. Frame blocks stay in the world (collision, linking, AeroPortals window matching).
-- The visible rim is a single thin **neutral light-gray** (`#C9CBD1`) box in the invisible frame ring: about **0.33 block** in-plane (not a full 1-block slab) with **0.25 block** of depth toward each viewing side. Inner faces are shaded darker so the coloured interior, still on the true plane, reads recessed. Not nested outlines, not portal-coloured, not bloom.
-- The rim uses cutout geometry that **writes depth**. Fast/Fancy clouds are drawn afterwards and depth-test against the main buffer; colour-only emissive rims let them show through those pixels. The rest of the collision ring stays invisible (no full-block depth wall). Foreground terrain still occludes the rim.
-- Interior window renderer is unchanged. Shaderless (no shader pack, no extra light).
+Not a stable release. Do not merge, tag, or publish.
+
+- **Portal hum restored.** 0.6 particle throttling also starved `PORTAL_AMBIENT` one-shots on 7×8+ windows. Live windows now play one looping drone per aperture; it stops on collapse/dimension change.
+- **Scan through-view (optional Immersive Portals 6.0.7).** After a successful detector scan the scanning player gets a 60s live destination view (`teleportable=false`). 2s ease open/close. Vortex stays opaque until dest sections are compiled; `AFTER_LEVEL` overlay so IP dest cannot cover the iris. IP quad tucks under the 0.03 white rim. Client clock uses ticks, not dimension `gameTime`. Dest-side vortex skip is only for this revealing window. Leftover tagged IP entities are cancelled. Logout/stop despawns them.
+- **Dedicated-server safety.** Client IP lookups (`ClientWorldLoader`, `PortalRendering`) no longer live on the common adapter class.
+- Approved look unchanged: opaque portal-tinted pixel vortex, 0.03 fullbright white rim, halo, updated detector preview.
+- Massive 16–50 geometry: stand column stays interior; dest aperture extra 0.08 under the rim.
+
+### Optional integrations (not claimed fixed)
+
+- Official Immersive Portals 6.0.7 + Sable 2.0.6 still crash at startup (mixin `Redirect` collision). AeroPortals 1.3.6 requires Sable. Independent of this jar.
+- Supported configs: **IP + Cloth, no Sable** for live through-view; **Sable + AeroPortals, no official IP** for Aeronautics ships. Do not load both official IP and Sable.
+- Seamless IP teleport and ship flight through wormholes are backlog, not this alpha.
 
 ## 0.6
 

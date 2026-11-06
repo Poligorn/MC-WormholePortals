@@ -11,7 +11,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
  * and are only resolved on the client when a packet actually arrives.
  */
 public final class ModNetwork {
-    public static final String PROTOCOL_VERSION = "4";
+    public static final String PROTOCOL_VERSION = "5";
 
     private ModNetwork() {
     }
@@ -28,6 +28,8 @@ public final class ModNetwork {
                 (payload, context) -> context.enqueueWork(ClientPayloadHandler::handleScanLost));
         registrar.playToClient(TransitPayload.TYPE, TransitPayload.STREAM_CODEC,
                 (payload, context) -> context.enqueueWork(() -> ClientPayloadHandler.handleTransit(payload)));
+        registrar.playToClient(ScanRevealPayload.TYPE, ScanRevealPayload.STREAM_CODEC,
+                (payload, context) -> context.enqueueWork(() -> ClientPayloadHandler.handleReveal(payload)));
     }
 
     public static void sendTransit(ServerPlayer player, TransitPayload payload) {
@@ -47,6 +49,10 @@ public final class ModNetwork {
     }
 
     public static void sendScan(ServerPlayer player, PortalScanPayload payload) {
+        PacketDistributor.sendToPlayer(player, payload);
+    }
+
+    public static void sendReveal(ServerPlayer player, ScanRevealPayload payload) {
         PacketDistributor.sendToPlayer(player, payload);
     }
 }

@@ -11,6 +11,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageType;
+import com.eveportalnether.scan.ScanReveal;
 import com.eveportalnether.world.PortalEffects;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
@@ -361,6 +362,7 @@ public class PortalManager extends SavedData {
             return;
         }
         setDirty();
+        ScanReveal.stopPair(server, pair.getId());
 
         for (ServerLevel level : sides(server)) {
             BlockPos origin = pair.getOrigin(level.dimension());

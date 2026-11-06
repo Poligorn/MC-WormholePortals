@@ -7,6 +7,7 @@ import com.eveportalnether.network.ModNetwork;
 import com.eveportalnether.network.PortalScanPayload;
 import com.eveportalnether.registry.ModItems;
 import com.eveportalnether.registry.ModSounds;
+import com.eveportalnether.scan.ScanReveal;
 import com.eveportalnether.world.data.PortalManager;
 import com.eveportalnether.world.data.PortalPair;
 import net.minecraft.ChatFormatting;
@@ -132,6 +133,7 @@ public final class DetectorDecryption {
                 if (pair.getTier() == PortalTier.MASSIVE) {
                     WormholeEvents.fire(player, WormholeEvents.DECRYPT_MASSIVE);
                 }
+                ScanReveal.start(player, pair);
             }
         }
     }

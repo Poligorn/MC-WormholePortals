@@ -182,8 +182,9 @@ public class WormholeBlock extends BaseEntityBlock {
 
     @Override
     protected RenderShape getRenderShape(BlockState state) {
-        // Frame blocks stay in the world for collision / linking; they just do not draw a solid model.
-        return state.getValue(FRAME) ? RenderShape.INVISIBLE : RenderShape.MODEL;
+        // Frame stays invisible for collision. Window interior is the BER vortex (or IP through-view),
+        // not the translucent gold plane — that plane would cover destination rendering.
+        return RenderShape.INVISIBLE;
     }
 
     @Override
@@ -200,10 +201,6 @@ public class WormholeBlock extends BaseEntityBlock {
         double y = pos.getY() + 0.5;
         double z = pos.getZ() + 0.5;
 
-        if (random.nextInt(80) == 0) {
-            float pitch = random.nextFloat() * 0.4F + 0.8F - decay * 0.15F;
-            level.playLocalSound(x, y, z, SoundEvents.PORTAL_AMBIENT, SoundSource.BLOCKS, 0.5F, pitch, false);
-        }
         if (decay <= 1 && random.nextInt(160) == 0) {
             level.playLocalSound(x, y, z, SoundEvents.BEACON_AMBIENT, SoundSource.BLOCKS, 0.6F, 0.5F + random.nextFloat() * 0.1F, false);
         }
@@ -269,6 +266,9 @@ public class WormholeBlock extends BaseEntityBlock {
     public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> blockEntityType) {
         if (state.getValue(FRAME)) {
             return null;
+        }
+        if (level.isClientSide) {
+            return createTickerHelper(blockEntityType, ModBlockEntities.WORMHOLE_BLOCK_ENTITY.get(), WormholeBlockEntity::clientTick);
         }
         return createTickerHelper(blockEntityType, ModBlockEntities.WORMHOLE_BLOCK_ENTITY.get(), WormholeBlockEntity::tick);
     }
@@ -363,9 +363,10 @@ public class WormholeBlock extends BaseEntityBlock {
     }
 
     /**
-     * Keep particle and sound budget roughly constant as the window grows.
+     * Keep particle budget roughly constant as the window grows.
      * A 4×5 portal is unchanged; a 50×50 window would otherwise emit thousands
-     * of portal particles and ambient sounds every tick.
+     * of portal particles every tick. The looping drone is one host per window
+     * ({@link com.eveportalnether.world.WormholeAmbient}) and is not throttled here.
      */
     private static boolean shouldSkipAmbient(Level level, BlockState state, BlockPos pos, RandomSource random) {
         Direction.Axis axis = state.getValue(AXIS);

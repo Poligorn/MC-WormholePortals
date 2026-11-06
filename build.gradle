@@ -49,6 +49,11 @@ repositories {
         url = "https://cursemaven.com"
         content { includeGroup("curse.maven") }
     }
+    maven {
+        name = "Modrinth"
+        url = "https://api.modrinth.com/maven"
+        content { includeGroup("maven.modrinth") }
+    }
 }
 
 base {
@@ -142,6 +147,11 @@ dependencies {
     compileOnly("com.breakinblocks.aeroportals:aeroportals:${aeroportals_version}") { transitive = false }
     compileOnly("dev.ryanhcode.sable:sable-neoforge-1.21.1:${sable_version}") { transitive = false }
 
+    // Optional Immersive Portals 6.0.7 adapter. compileOnly so the jar is not bundled (no jarJar)
+    // and Wormholes still loads when Immersive Portals is absent. Cloth Config is an IP runtime
+    // dependency, not ours.
+    compileOnly("maven.modrinth:immersive-portals-neoforge:${immersive_portals_version}") { transitive = false }
+
     // Create mod and dependencies
     // implementation("com.simibubi.create:create-${minecraft_version}:${create_version}:slim") { transitive = false }
     // implementation("net.createmod.ponder:ponder-neoforge:${ponder_version}+mc${minecraft_version}")
@@ -180,7 +190,8 @@ var generateModMetadata = tasks.register("generateModMetadata", ProcessResources
             neo_version            : neo_version,
             neo_version_range      : neo_version_range,
             loader_version_range   : loader_version_range,
-            aeroportals_version    : aeroportals_version,
+            aeroportals_version      : aeroportals_version,
+            immersive_portals_version: immersive_portals_version,
             mod_id                 : mod_id,
             mod_name               : mod_name,
             mod_license            : mod_license,

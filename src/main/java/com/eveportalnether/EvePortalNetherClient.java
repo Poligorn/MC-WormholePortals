@@ -1,9 +1,12 @@
 package com.eveportalnether;
 
 import com.eveportalnether.block.WormholeBlock;
+import com.eveportalnether.block.entity.WormholeBlockEntity;
 import com.eveportalnether.client.ScanPanel;
+import com.eveportalnether.client.ScanRevealClient;
 import com.eveportalnether.client.SpiralParticle;
 import com.eveportalnether.client.TransitScreen;
+import com.eveportalnether.client.WormholeAmbientSounds;
 import com.eveportalnether.client.WormholePulseRenderer;
 import com.eveportalnether.registry.ModBlockEntities;
 import com.eveportalnether.registry.ModParticles;
@@ -49,12 +52,16 @@ public class EvePortalNetherClient {
         NeoForge.EVENT_BUS.addListener(EvePortalNetherClient::onLoggingOut);
         NeoForge.EVENT_BUS.addListener(EvePortalNetherClient::onClientTick);
         NeoForge.EVENT_BUS.addListener(EvePortalNetherClient::onCameraAngles);
+        NeoForge.EVENT_BUS.addListener(ScanRevealClient::onAfterLevel);
+        WormholeBlockEntity.clientAmbient = WormholeAmbientSounds::tick;
     }
 
     private static void onClientTick(ClientTickEvent.Post event) {
         if (ShakePayload.clientRemaining > 0) {
             ShakePayload.clientRemaining--;
         }
+        ScanRevealClient.tick();
+        WormholeAmbientSounds.sweepStopped();
     }
 
     private static void onCameraAngles(ViewportEvent.ComputeCameraAngles event) {
@@ -94,5 +101,6 @@ public class EvePortalNetherClient {
         ShakePayload.clientRemaining = 0;
         ScanPanel.clear();
         TransitScreen.clear();
+        ScanRevealClient.clear();
     }
 }
