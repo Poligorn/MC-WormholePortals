@@ -13,7 +13,7 @@ import net.minecraft.resources.ResourceLocation;
 import java.util.UUID;
 
 /**
- * Clientbound: the scanning player may skip the vortex interior for {@code durationTicks}.
+ * Clientbound: the scanning player may iris the vortex interior for {@code durationTicks}.
  * {@code durationTicks <= 0} clears the local reveal. Destinations are not sent.
  */
 public record ScanRevealPayload(UUID pairId, BlockPos overworldOrigin, BlockPos netherOrigin,

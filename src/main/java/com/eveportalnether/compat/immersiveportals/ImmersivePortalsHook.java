@@ -1,8 +1,10 @@
 package com.eveportalnether.compat.immersiveportals;
 
 import com.eveportalnether.world.data.PortalPair;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.Level;
 import net.neoforged.fml.ModList;
 
 import java.util.UUID;
@@ -36,5 +38,13 @@ public final class ImmersivePortalsHook {
         if (available()) {
             ImmersivePortalsCompat.despawnReveal(server, playerId);
         }
+    }
+
+    /**
+     * Client/server: a tagged reveal portal is actually in the level near {@code pos}.
+     * The iris must not punch a hole until this is true, or the local world would show.
+     */
+    public static boolean hasRevealPortal(Level level, BlockPos pos) {
+        return available() && ImmersivePortalsCompat.hasTaggedPortalNear(level, pos);
     }
 }

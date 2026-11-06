@@ -19,8 +19,15 @@ import java.util.concurrent.ConcurrentHashMap;
  * One session per player; a later successful scan replaces the previous one.
  */
 public final class ScanReveal {
-    /** 60 seconds at 20 TPS. */
+    /** 60 seconds at 20 TPS, including the 2s open and 2s close irises. */
     public static final int DURATION_TICKS = 1200;
+    /** 2.0 s ease-in-out at 20 TPS. */
+    public static final int TRANSITION_TICKS = 40;
+
+    public static float ease(float t) {
+        t = t < 0.0F ? 0.0F : Math.min(1.0F, t);
+        return t * t * (3.0F - 2.0F * t);
+    }
 
     private static final Map<UUID, Session> SESSIONS = new ConcurrentHashMap<>();
 

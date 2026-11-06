@@ -13,6 +13,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.common.NeoForge;
@@ -96,6 +97,19 @@ public final class ImmersivePortalsCompat {
             return false;
         }
         return true;
+    }
+
+    static boolean hasTaggedPortalNear(Level level, BlockPos pos) {
+        if (level == null || pos == null) {
+            return false;
+        }
+        AABB box = new AABB(pos).inflate(48.0);
+        for (Portal portal : level.getEntitiesOfClass(Portal.class, box)) {
+            if (PORTAL_TAG.equals(portal.portalTag)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static void despawnReveal(MinecraftServer server, UUID playerId) {

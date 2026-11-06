@@ -154,23 +154,32 @@ public final class ScanPanel {
         int innerY0 = oy + cell;
         int innerX1 = ox + pw - cell;
         int innerY1 = oy + ph - cell;
-        float cx0 = (w - 1) * 0.5F;
-        float cy0 = (h - 1) * 0.5F;
-        boolean compact = cell <= 1 || w * h > 256;
-        if (compact) {
-            g.fill(innerX0, innerY0, innerX1, innerY1, argb(alpha, WormholeStyle.vortexRgb(tint, 0.0F, 0.0F, now)));
-        } else {
-            for (int cx = 1; cx < w - 1; cx++) {
-                for (int cy = 1; cy < h - 1; cy++) {
-                    int rgb = WormholeStyle.vortexRgb(tint, cx - cx0, cy - cy0, now);
-                    g.fill(ox + cx * cell, oy + cy * cell, ox + (cx + 1) * cell, oy + (cy + 1) * cell, argb(alpha, rgb));
-                }
+        int windowW = Math.max(1, w - 2);
+        int windowH = Math.max(1, h - 2);
+        int innerWpx = Math.max(1, innerX1 - innerX0);
+        int innerHpx = Math.max(1, innerY1 - innerY0);
+        int samplesX = Math.min(innerWpx, Math.max(8, windowW * WormholeStyle.vortexSubdiv(windowW)));
+        int samplesY = Math.min(innerHpx, Math.max(8, windowH * WormholeStyle.vortexSubdiv(windowH)));
+        float halfW = windowW * 0.5F;
+        float halfH = windowH * 0.5F;
+        for (int sy = 0; sy < samplesY; sy++) {
+            int y0 = innerY0 + sy * innerHpx / samplesY;
+            int y1 = innerY0 + (sy + 1) * innerHpx / samplesY;
+            float dy = (sy + 0.5F) / samplesY * windowH - halfH;
+            for (int sx = 0; sx < samplesX; sx++) {
+                int x0 = innerX0 + sx * innerWpx / samplesX;
+                int x1 = innerX0 + (sx + 1) * innerWpx / samplesX;
+                float dx = (sx + 0.5F) / samplesX * windowW - halfW;
+                int rgb = WormholeStyle.vortexRgb(tint, dx, dy, now, windowW, windowH);
+                g.fill(x0, y0, Math.max(x0 + 1, x1), Math.max(y0 + 1, y1), argb(alpha, rgb));
             }
         }
         int rimPx = Math.max(1, Math.round(WormholeStyle.RIM * Math.max(cell, 8)));
         int haloPx = Math.max(rimPx + 1, Math.round(WormholeStyle.HALO * Math.max(cell, 8)));
-        ring(g, innerX0 - haloPx, innerY0 - haloPx, innerX1 + haloPx, innerY1 + haloPx, haloPx, argb(alpha * WormholeStyle.HALO_ALPHA / 255.0F, WormholeStyle.grayHiRgb()));
-        ring(g, innerX0 - rimPx, innerY0 - rimPx, innerX1 + rimPx, innerY1 + rimPx, rimPx, argb(alpha, WormholeStyle.grayHiRgb()));
+        ring(g, innerX0 - haloPx, innerY0 - haloPx, innerX1 + haloPx, innerY1 + haloPx, haloPx,
+                argb(alpha * WormholeStyle.HALO_ALPHA / 255.0F, WormholeStyle.whiteRgb()));
+        ring(g, innerX0 - rimPx, innerY0 - rimPx, innerX1 + rimPx, innerY1 + rimPx, rimPx,
+                argb(alpha, WormholeStyle.whiteRgb()));
 
         if (isLost) {
             for (int i = 0; i < 5; i++) {

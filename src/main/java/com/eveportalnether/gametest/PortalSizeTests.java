@@ -139,13 +139,27 @@ public final class PortalSizeTests {
     @GameTest(template = "empty")
     public static void scanRevealLastsSixtySeconds(GameTestHelper helper) {
         assertEq(helper, ScanReveal.DURATION_TICKS, 1200, "scan reveal duration ticks");
+        assertEq(helper, ScanReveal.TRANSITION_TICKS, 40, "2s iris ticks");
+        if (Math.abs(ScanReveal.ease(0.0F)) > 0.001F || Math.abs(ScanReveal.ease(1.0F) - 1.0F) > 0.001F) {
+            helper.fail("ease must map 0→0 and 1→1");
+            return;
+        }
+        float mid = ScanReveal.ease(0.5F);
+        if (mid < 0.49F || mid > 0.51F) {
+            helper.fail("ease-in-out midpoint should be ~0.5, got " + mid);
+            return;
+        }
         helper.succeed();
     }
 
     @GameTest(template = "empty")
     public static void vortexIsOpaqueAndRimIsThin(GameTestHelper helper) {
-        if (WormholeStyle.RIM < 0.04F || WormholeStyle.RIM > 0.08F) {
-            helper.fail("solid rim width " + WormholeStyle.RIM + " should be a thin 0.04–0.08 line");
+        if (WormholeStyle.RIM < 0.02F || WormholeStyle.RIM > 0.04F) {
+            helper.fail("solid rim width " + WormholeStyle.RIM + " should be a thin ~0.03 line");
+            return;
+        }
+        if (WormholeStyle.HALO <= WormholeStyle.RIM || WormholeStyle.HALO > 0.09F) {
+            helper.fail("halo " + WormholeStyle.HALO + " should be a short outside glow, not a slab");
             return;
         }
         if (WormholeStyle.DEPTH > 0.12F) {
@@ -153,12 +167,51 @@ public final class PortalSizeTests {
             return;
         }
         assertEq(helper, WormholeStyle.VORTEX_ALPHA, 255, "vortex vertex alpha");
-        int dark = WormholeStyle.vortexRgb(0x3366CC, 0.0F, 0.0F, 0.0F);
+        assertEq(helper, WormholeStyle.WHITE[0], 255, "white rim R");
+        assertEq(helper, WormholeStyle.WHITE[1], 255, "white rim G");
+        assertEq(helper, WormholeStyle.WHITE[2], 255, "white rim B");
+        assertEq(helper, WormholeStyle.FULL_BRIGHT, 0xF000F0, "rim packed light");
+        int dark = WormholeStyle.vortexRgb(0x3366CC, 0.0F, 0.0F, 0.0F, 2, 3);
         int r = dark >> 16 & 0xFF;
         int g = dark >> 8 & 0xFF;
         int b = dark & 0xFF;
-        if (r + g + b < 80) {
-            helper.fail("vortex centre too dark to read at night: " + r + "," + g + "," + b);
+        if (r + g + b < 40) {
+            helper.fail("vortex centre is black, not a shaded portal tint: " + r + "," + g + "," + b);
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void vortexIsPixelFunnelNotFlatFill(GameTestHelper helper) {
+        int tint = 0xFF8A2B;
+        int a = WormholeStyle.vortexRgb(tint, 0.01F, 0.01F, 0.4F, 2, 3);
+        int b = WormholeStyle.vortexRgb(tint, 0.04F, 0.02F, 0.4F, 2, 3);
+        if (a != b) {
+            helper.fail("samples in the same texel must match for pixel-art snapping");
+            return;
+        }
+        int centre = WormholeStyle.vortexRgb(tint, 0.0F, 0.0F, 0.4F, 2, 3);
+        int strand = WormholeStyle.vortexRgb(tint, 0.6F, 0.15F, 0.4F, 2, 3);
+        if (centre == strand) {
+            helper.fail("funnel centre and a mid strand should differ (not a uniform fill)");
+            return;
+        }
+        int cr = centre >> 16 & 0xFF;
+        int cg = centre >> 8 & 0xFF;
+        int sr = strand >> 16 & 0xFF;
+        int sg = strand >> 8 & 0xFF;
+        if (cr <= cg + 8 || sr <= sg + 8) {
+            helper.fail("orange portal vortex must stay warm-hued, not black/blue");
+            return;
+        }
+        if (Math.abs(sr - 255) < 2 && Math.abs(sg - 214) < 20) {
+            helper.fail("strand is yellow-white highlight, not portal ochre");
+            return;
+        }
+        int blue = WormholeStyle.vortexRgb(0x3B7BFF, 0.5F, 0.0F, 0.4F, 2, 3);
+        if ((blue & 0xFF) < (blue >> 16 & 0xFF)) {
+            helper.fail("blue portal vortex must stay blue-tinted, not forced gold");
             return;
         }
         helper.succeed();
