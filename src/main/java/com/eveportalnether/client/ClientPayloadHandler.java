@@ -2,6 +2,7 @@ package com.eveportalnether.client;
 
 import com.eveportalnether.network.AnonymityPayload;
 import com.eveportalnether.network.PortalScanPayload;
+import com.eveportalnether.network.ScanRevealPayload;
 import com.eveportalnether.network.ShakePayload;
 import com.eveportalnether.network.TransitPayload;
 
@@ -27,5 +28,9 @@ public final class ClientPayloadHandler {
 
     public static void handleTransit(TransitPayload payload) {
         TransitScreen.begin(payload);
+    }
+
+    public static void handleReveal(ScanRevealPayload payload) {
+        ScanRevealClient.handle(payload);
     }
 }

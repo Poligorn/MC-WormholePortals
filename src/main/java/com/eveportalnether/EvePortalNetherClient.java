@@ -2,6 +2,7 @@ package com.eveportalnether;
 
 import com.eveportalnether.block.WormholeBlock;
 import com.eveportalnether.client.ScanPanel;
+import com.eveportalnether.client.ScanRevealClient;
 import com.eveportalnether.client.SpiralParticle;
 import com.eveportalnether.client.TransitScreen;
 import com.eveportalnether.client.WormholePulseRenderer;
@@ -55,6 +56,7 @@ public class EvePortalNetherClient {
         if (ShakePayload.clientRemaining > 0) {
             ShakePayload.clientRemaining--;
         }
+        ScanRevealClient.tick();
     }
 
     private static void onCameraAngles(ViewportEvent.ComputeCameraAngles event) {
@@ -94,5 +96,6 @@ public class EvePortalNetherClient {
         ShakePayload.clientRemaining = 0;
         ScanPanel.clear();
         TransitScreen.clear();
+        ScanRevealClient.clear();
     }
 }

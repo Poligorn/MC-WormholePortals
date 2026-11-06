@@ -182,8 +182,9 @@ public class WormholeBlock extends BaseEntityBlock {
 
     @Override
     protected RenderShape getRenderShape(BlockState state) {
-        // Frame blocks stay in the world for collision / linking; they just do not draw a solid model.
-        return state.getValue(FRAME) ? RenderShape.INVISIBLE : RenderShape.MODEL;
+        // Frame stays invisible for collision. Window interior is the BER vortex (or IP through-view),
+        // not the translucent gold plane — that plane would cover destination rendering.
+        return RenderShape.INVISIBLE;
     }
 
     @Override

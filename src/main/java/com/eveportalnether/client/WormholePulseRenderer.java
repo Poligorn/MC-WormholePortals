@@ -21,11 +21,9 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 
 /**
- * Window interior: existing pulse over each window block (true portal plane, unchanged).
- * Border: one thin neutral-gray rim in the invisible frame ring. In-plane width is ~1/3 of
- * the old 1-block slab; along the portal normal it projects 0.25 block toward each viewing
- * side so the coloured interior reads recessed. Inner faces are shaded darker (sidewall),
- * not a second nested outline.
+ * Window interior: a procedural vortex on the true portal plane. After a successful scan
+ * the scanning client skips that interior so Immersive Portals can show the destination;
+ * other clients keep the vortex. Border: thin light-gray rim with 0.25-block depth.
  * <p>
  * {@code entityTranslucentEmissive} uses {@code COLOR_WRITE} only. Clouds in 1.21.1 are
  * drawn after block entities and depth-test against the main buffer (Fast/Fancy), so a
@@ -40,8 +38,8 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
     private static final ResourceLocation OUTLINE_TEXTURE =
             ResourceLocation.fromNamespaceAndPath(EvePortalNether.MODID, "textures/block/wormhole_outline.png");
     private static final int FULL_BRIGHT = 0xF000F0;
-    private static final float TILES = 4.0F;
-    private static final float[] PULSE_DEPTHS = {0.47F, 0.53F};
+    private static final float[] VORTEX_DEPTHS = {0.44F, 0.50F, 0.56F};
+    private static Bounds cache;
     /** Visible in-plane width into the frame (~1/3 of the old 1-block ring). */
     private static final float RIM = 0.33F;
     /** Projection toward each viewing side from the true plane at 0.5. */
@@ -80,23 +78,19 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
 
         int decay = state.getValue(WormholeBlock.DECAY);
         float time = level.getGameTime() + partialTick;
-        int across = axis == Direction.Axis.X ? pos.getZ() : pos.getX();
-        float pulse = alpha(decay, time, pos.getY(), across);
         PoseStack.Pose pose = poseStack.last();
+        boolean revealing = ScanRevealClient.isRevealing(level, pos);
 
-        if (!lod && pulse > 0.01F) {
+        if (!lod && !revealing) {
+            Bounds bounds = portalBounds(level, pos, axis);
             int rgb = state.getValue(WormholeBlock.COLOR).tint(decay);
-            float u0 = Math.floorMod(across, (int) TILES) / TILES;
-            float v0 = Math.floorMod(-pos.getY(), (int) TILES) / TILES;
-            float u1 = u0 + 1.0F / TILES;
-            float v1 = v0 + 1.0F / TILES;
             int r = rgb >> 16 & 0xFF;
             int g = rgb >> 8 & 0xFF;
             int b = rgb & 0xFF;
-            int a = (int) (pulse * 255.0F);
             VertexConsumer consumer = buffers.getBuffer(RenderType.entityTranslucentEmissive(PULSE_TEXTURE, false));
-            for (float depth : PULSE_DEPTHS) {
-                fillFace(consumer, pose, axis, 0.0F, 0.0F, 1.0F, 1.0F, depth, u0, v0, u1, v1, r, g, b, a);
+            for (int i = 0; i < VORTEX_DEPTHS.length; i++) {
+                float layer = 0.55F - i * 0.12F;
+                swirlFace(consumer, pose, axis, pos, bounds, time + i * 0.7F, VORTEX_DEPTHS[i], r, g, b, layer);
             }
         }
 
@@ -141,6 +135,71 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
         return distSqr > 32 * 32 && (parity & 1) != 0;
     }
 
+    private static Bounds portalBounds(Level level, BlockPos pos, Direction.Axis axis) {
+        int plane = axis == Direction.Axis.X ? pos.getX() : pos.getZ();
+        int across = axis == Direction.Axis.X ? pos.getZ() : pos.getX();
+        Bounds cached = cache;
+        if (cached != null && cached.tick == level.getGameTime() && cached.axis == axis && cached.plane == plane
+                && across >= cached.minAcross && across <= cached.maxAcross
+                && pos.getY() >= cached.minY && pos.getY() <= cached.maxY) {
+            return cached;
+        }
+        BlockPos cursor = pos;
+        while (isWindow(level, cursor.below())) {
+            cursor = cursor.below();
+        }
+        while (isWindow(level, across(cursor, axis, -1))) {
+            cursor = across(cursor, axis, -1);
+        }
+        int minAcross = axis == Direction.Axis.X ? cursor.getZ() : cursor.getX();
+        int minY = cursor.getY();
+        int width = 1;
+        int height = 1;
+        while (isWindow(level, across(cursor, axis, width))) {
+            width++;
+        }
+        while (isWindow(level, cursor.above(height))) {
+            height++;
+        }
+        Bounds bounds = new Bounds(level.getGameTime(), axis, plane, minAcross, minAcross + width - 1, minY, minY + height - 1);
+        cache = bounds;
+        return bounds;
+    }
+
+    private static void swirlFace(VertexConsumer consumer, PoseStack.Pose pose, Direction.Axis axis, BlockPos pos,
+                                  Bounds bounds, float time, float depth, int r, int g, int b, float layer) {
+        swirlVertex(consumer, pose, axis, pos, bounds, 0.0F, 0.0F, depth, time, r, g, b, layer);
+        swirlVertex(consumer, pose, axis, pos, bounds, 1.0F, 0.0F, depth, time, r, g, b, layer);
+        swirlVertex(consumer, pose, axis, pos, bounds, 1.0F, 1.0F, depth, time, r, g, b, layer);
+        swirlVertex(consumer, pose, axis, pos, bounds, 0.0F, 1.0F, depth, time, r, g, b, layer);
+    }
+
+    private static void swirlVertex(VertexConsumer consumer, PoseStack.Pose pose, Direction.Axis axis, BlockPos pos,
+                                    Bounds bounds, float localAcross, float localUp, float depth, float time,
+                                    int r, int g, int b, float layer) {
+        float across = (axis == Direction.Axis.X ? pos.getZ() : pos.getX()) + localAcross;
+        float up = pos.getY() + localUp;
+        float centerAcross = (bounds.minAcross + bounds.maxAcross + 1) * 0.5F;
+        float centerUp = (bounds.minY + bounds.maxY + 1) * 0.5F;
+        float dx = across - centerAcross;
+        float dy = up - centerUp;
+        float dist = Mth.sqrt(dx * dx + dy * dy);
+        float ang = (float) Math.atan2(dy, dx) + time * 0.14F;
+        float u = 0.5F + 0.45F * Mth.cos(ang) * (0.15F + dist * 0.12F);
+        float v = 0.5F + 0.45F * Mth.sin(ang) * (0.15F + dist * 0.12F);
+        float funnel = Mth.clamp(dist / 3.5F, 0.0F, 1.0F);
+        float shade = 0.12F + 0.88F * funnel;
+        int vr = (int) (r * shade * (0.35F + 0.65F * layer));
+        int vg = (int) (g * shade * (0.28F + 0.55F * layer));
+        int vb = (int) (Math.min(255, b * 1.15F) * (0.22F + 0.55F * funnel) * layer);
+        int a = (int) ((0.55F + 0.35F * funnel) * layer * 255.0F);
+        if (axis == Direction.Axis.X) {
+            vertex(consumer, pose, depth, localUp, localAcross, u, v, vr, vg, vb, a, 1, 0, 0);
+        } else {
+            vertex(consumer, pose, localAcross, localUp, depth, u, v, vr, vg, vb, a, 0, 0, 1);
+        }
+    }
+
     private static boolean isBorder(Level level, BlockPos pos, Direction.Axis axis) {
         return !isWindow(level, pos.above())
                 || !isWindow(level, pos.below())
@@ -155,24 +214,6 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
 
     private static BlockPos across(BlockPos pos, Direction.Axis axis, int steps) {
         return axis == Direction.Axis.X ? pos.offset(0, 0, steps) : pos.offset(steps, 0, 0);
-    }
-
-    private static float alpha(int decay, float time, int y, int across) {
-        if (decay >= 3) {
-            float phase = (time + across * 0.7F) % 7.0F;
-            return phase < 2.0F ? 0.75F : 0.06F;
-        }
-        float wave = 0.5F + 0.5F * Mth.sin(time * 0.16F - y * 0.65F - across * 0.25F);
-        float base = switch (decay) {
-            case 0 -> 0.55F;
-            case 1 -> 0.4F;
-            default -> 0.28F;
-        };
-        float alpha = base * (0.35F + 0.65F * wave);
-        if (decay == 2 && Mth.sin(time * 1.7F + across * 3.1F + y * 1.3F) > 0.92F) {
-            alpha *= 0.2F;
-        }
-        return alpha;
     }
 
     private static void rim(VertexConsumer consumer, PoseStack.Pose pose, Direction.Axis axis,
@@ -220,22 +261,6 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
         }
     }
 
-    private static void fillFace(VertexConsumer consumer, PoseStack.Pose pose, Direction.Axis axis,
-                                 float x0, float y0, float x1, float y1, float depth,
-                                 float u0, float v0, float u1, float v1, int r, int g, int b, int a) {
-        if (axis == Direction.Axis.X) {
-            vertex(consumer, pose, depth, y0, x0, u0, v1, r, g, b, a, 1, 0, 0);
-            vertex(consumer, pose, depth, y0, x1, u1, v1, r, g, b, a, 1, 0, 0);
-            vertex(consumer, pose, depth, y1, x1, u1, v0, r, g, b, a, 1, 0, 0);
-            vertex(consumer, pose, depth, y1, x0, u0, v0, r, g, b, a, 1, 0, 0);
-        } else {
-            vertex(consumer, pose, x0, y0, depth, u0, v1, r, g, b, a, 0, 0, 1);
-            vertex(consumer, pose, x1, y0, depth, u1, v1, r, g, b, a, 0, 0, 1);
-            vertex(consumer, pose, x1, y1, depth, u1, v0, r, g, b, a, 0, 0, 1);
-            vertex(consumer, pose, x0, y1, depth, u0, v0, r, g, b, a, 0, 0, 1);
-        }
-    }
-
     private static void vertex(VertexConsumer consumer, PoseStack.Pose pose, float x, float y, float z, float u, float v,
                                int r, int g, int b, int a, float nx, float ny, float nz) {
         consumer.addVertex(pose, x, y, z)
@@ -244,5 +269,8 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
                 .setOverlay(OverlayTexture.NO_OVERLAY)
                 .setLight(FULL_BRIGHT)
                 .setNormal(pose, nx, ny, nz);
+    }
+
+    private record Bounds(long tick, Direction.Axis axis, int plane, int minAcross, int maxAcross, int minY, int maxY) {
     }
 }

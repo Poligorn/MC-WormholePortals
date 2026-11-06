@@ -4,6 +4,7 @@ import com.eveportalnether.Config;
 import com.eveportalnether.EvePortalNether;
 import com.eveportalnether.block.WormholeBlock;
 import com.eveportalnether.registry.ModBlocks;
+import com.eveportalnether.scan.ScanReveal;
 import com.eveportalnether.world.PortalShape;
 import com.eveportalnether.world.PortalTier;
 import net.minecraft.core.BlockPos;
@@ -119,8 +120,8 @@ public final class PortalSizeTests {
             helper.fail("frame should not draw a solid model");
             return;
         }
-        if (window.getRenderShape() != RenderShape.MODEL) {
-            helper.fail("window interior renderer must stay");
+        if (window.getRenderShape() != RenderShape.INVISIBLE) {
+            helper.fail("window interior is BER vortex / through-view, not a block model");
             return;
         }
         if (frame.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO, CollisionContext.empty()).isEmpty()) {
@@ -131,6 +132,12 @@ public final class PortalSizeTests {
             helper.fail("window collision must stay empty");
             return;
         }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void scanRevealLastsSixtySeconds(GameTestHelper helper) {
+        assertEq(helper, ScanReveal.DURATION_TICKS, 1200, "scan reveal duration ticks");
         helper.succeed();
     }
 
