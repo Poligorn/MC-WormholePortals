@@ -2,12 +2,18 @@ package com.eveportalnether.gametest;
 
 import com.eveportalnether.Config;
 import com.eveportalnether.EvePortalNether;
+import com.eveportalnether.block.WormholeBlock;
+import com.eveportalnether.registry.ModBlocks;
 import com.eveportalnether.world.PortalShape;
 import com.eveportalnether.world.PortalTier;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.world.level.EmptyBlockGetter;
+import net.minecraft.world.level.block.RenderShape;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.shapes.CollisionContext;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 
@@ -99,6 +105,30 @@ public final class PortalSizeTests {
         BlockPos small = new BlockPos(0, 64, 0);
         if (!PortalShape.contains(small, Direction.Axis.Z, 4, 5, small.offset(2, 1, 0))) {
             helper.fail("legacy 4x5 stand column should still be inside");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void frameIsInvisibleButSolid(GameTestHelper helper) {
+        WormholeBlock block = (WormholeBlock) ModBlocks.WORMHOLE.get();
+        BlockState frame = block.defaultBlockState().setValue(WormholeBlock.FRAME, true);
+        BlockState window = block.defaultBlockState().setValue(WormholeBlock.FRAME, false);
+        if (frame.getRenderShape() != RenderShape.INVISIBLE) {
+            helper.fail("frame should not draw a solid model");
+            return;
+        }
+        if (window.getRenderShape() != RenderShape.MODEL) {
+            helper.fail("window interior renderer must stay");
+            return;
+        }
+        if (frame.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO, CollisionContext.empty()).isEmpty()) {
+            helper.fail("frame collision must remain");
+            return;
+        }
+        if (!window.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO, CollisionContext.empty()).isEmpty()) {
+            helper.fail("window collision must stay empty");
             return;
         }
         helper.succeed();

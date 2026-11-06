@@ -22,7 +22,7 @@ public class ModBlocks {
             .noLootTable()
             .noOcclusion()
             .isSuffocating((state, getter, pos) -> state.getValue(WormholeBlock.FRAME))
-            .isViewBlocking((state, getter, pos) -> state.getValue(WormholeBlock.FRAME))
+            .isViewBlocking((state, getter, pos) -> false)
             .isValidSpawn((state, getter, pos, type) -> false)
             .pushReaction(PushReaction.BLOCK)
             .lightLevel(WormholeBlock::lightLevel)
