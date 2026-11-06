@@ -2,9 +2,10 @@
 
 ## Unreleased (1.0)
 
-- Solid portal frame is no longer drawn. Frame blocks stay in the world (collision, linking, AeroPortals window matching). A luminous rim uses the portal's **assigned colour** (plus a same-colour alpha halo). No white/gold contour unless that is the portal colour.
-- The rim is a thin box in the invisible frame ring, with thickness along the portal normal, so it sits against the world rather than on the interior fill (which overwrote the first same-colour on-window strip).
-- Interior window renderer is unchanged. Outline is shaderless emissive quads (not bloom, not coloured lighting, no shader pack).
+- Solid portal frame is no longer drawn. Frame blocks stay in the world (collision, linking, AeroPortals window matching).
+- The visible rim is a single thin **neutral light-gray** (`#C9CBD1`) box in the invisible frame ring: about **0.33 block** in-plane (not a full 1-block slab) with **0.25 block** of depth toward each viewing side. Inner faces are shaded darker so the coloured interior, still on the true plane, reads recessed. Not nested outlines, not portal-coloured, not bloom.
+- The rim uses cutout geometry that **writes depth**. Fast/Fancy clouds are drawn afterwards and depth-test against the main buffer; colour-only emissive rims let them show through those pixels. The rest of the collision ring stays invisible (no full-block depth wall). Foreground terrain still occludes the rim.
+- Interior window renderer is unchanged. Shaderless (no shader pack, no extra light).
 
 ## 0.6
 
