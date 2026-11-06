@@ -4,9 +4,9 @@ import com.eveportalnether.EvePortalNether;
 import com.eveportalnether.block.WormholeBlock;
 import com.eveportalnether.block.entity.WormholeBlockEntity;
 import com.eveportalnether.registry.ModBlocks;
+import com.eveportalnether.world.WormholeStyle;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
@@ -15,42 +15,25 @@ import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 
 /**
- * Window interior: a procedural vortex on the true portal plane. After a successful scan
- * the scanning client skips that interior so Immersive Portals can show the destination;
- * other clients keep the vortex. Border: thin light-gray rim with 0.25-block depth.
+ * Window interior: fully opaque coloured vortex (cutout + depth write) so the same-world
+ * terrain cannot show through. After a successful scan the scanning client skips that
+ * interior so Immersive Portals can show the destination; other clients keep the vortex.
  * <p>
- * {@code entityTranslucentEmissive} uses {@code COLOR_WRITE} only. Clouds in 1.21.1 are
- * drawn after block entities and depth-test against the main buffer (Fast/Fancy), so a
- * colour-only rim lets them show through. The rim uses {@code entityCutoutNoCull} instead
- * ({@code COLOR_DEPTH_WRITE}, no transparency) so it occludes clouds behind those pixels
- * while still losing to closer terrain. The rest of the 1-block collision ring stays
- * invisible — no full-block depth wall.
+ * Border: a thin light-gray luminous line in the invisible frame ring, plus a soft outer
+ * halo. The solid line uses {@code entityCutoutNoCull} ({@code COLOR_DEPTH_WRITE}) so
+ * clouds cannot punch through those pixels. The halo is emissive and sits outside the
+ * solid line — not a second slab, not always-on-top.
  */
 public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockEntity> {
-    private static final ResourceLocation PULSE_TEXTURE =
-            ResourceLocation.fromNamespaceAndPath(EvePortalNether.MODID, "textures/block/wormhole_pulse.png");
     private static final ResourceLocation OUTLINE_TEXTURE =
             ResourceLocation.fromNamespaceAndPath(EvePortalNether.MODID, "textures/block/wormhole_outline.png");
-    private static final int FULL_BRIGHT = 0xF000F0;
-    private static final float[] VORTEX_DEPTHS = {0.44F, 0.50F, 0.56F};
     private static Bounds cache;
-    /** Visible in-plane width into the frame (~1/3 of the old 1-block ring). */
-    private static final float RIM = 0.33F;
-    /** Projection toward each viewing side from the true plane at 0.5. */
-    private static final float DEPTH = 0.25F;
-    /** Tiny overlap onto the window so the interior model cannot leave a hairline gap. */
-    private static final float INNER = 0.02F;
-    /** #C9CBD1 front of the rim. */
-    private static final int[] GRAY = {201, 203, 209};
-    private static final int[] GRAY_HI = {226, 228, 232};
-    private static final int[] GRAY_WALL = {88, 90, 96};
-    private static final int[] GRAY_OUTER = {168, 170, 176};
+    private static final int[] RGB = new int[3];
 
     public WormholePulseRenderer(BlockEntityRendererProvider.Context context) {
     }
@@ -71,68 +54,50 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
         BlockPos pos = entity.getBlockPos();
         Direction.Axis axis = state.getValue(WormholeBlock.AXIS);
         boolean border = isBorder(level, pos, axis);
-        boolean lod = shouldSkipLod(pos);
-        if (lod && !border) {
-            return;
-        }
-
-        int decay = state.getValue(WormholeBlock.DECAY);
-        float time = level.getGameTime() + partialTick;
         PoseStack.Pose pose = poseStack.last();
         boolean revealing = ScanRevealClient.isRevealing(level, pos);
 
-        if (!lod && !revealing) {
+        if (!revealing) {
             Bounds bounds = portalBounds(level, pos, axis);
-            int rgb = state.getValue(WormholeBlock.COLOR).tint(decay);
-            int r = rgb >> 16 & 0xFF;
-            int g = rgb >> 8 & 0xFF;
-            int b = rgb & 0xFF;
-            VertexConsumer consumer = buffers.getBuffer(RenderType.entityTranslucentEmissive(PULSE_TEXTURE, false));
-            for (int i = 0; i < VORTEX_DEPTHS.length; i++) {
-                float layer = 0.55F - i * 0.12F;
-                swirlFace(consumer, pose, axis, pos, bounds, time + i * 0.7F, VORTEX_DEPTHS[i], r, g, b, layer);
-            }
+            int portalRgb = state.getValue(WormholeBlock.COLOR).tint(state.getValue(WormholeBlock.DECAY));
+            float time = level.getGameTime() + partialTick;
+            VertexConsumer vortex = buffers.getBuffer(RenderType.entityCutoutNoCull(OUTLINE_TEXTURE));
+            swirlFace(vortex, pose, axis, pos, bounds, time, 0.5F, portalRgb);
         }
 
         if (border) {
-            VertexConsumer consumer = buffers.getBuffer(RenderType.entityCutoutNoCull(OUTLINE_TEXTURE));
             boolean top = !isWindow(level, pos.above());
             boolean bottom = !isWindow(level, pos.below());
             boolean minAcross = !isWindow(level, across(pos, axis, -1));
             boolean maxAcross = !isWindow(level, across(pos, axis, 1));
-            float a0 = minAcross ? -RIM : 0.0F;
-            float a1 = maxAcross ? 1.0F + RIM : 1.0F;
-            if (top) {
-                // Inner sidewall is the low-U face (toward the window).
-                rim(consumer, pose, axis, a0, 1.0F - INNER, a1, 1.0F + RIM, false);
-            }
-            if (bottom) {
-                rim(consumer, pose, axis, a0, -RIM, a1, INNER, true);
-            }
-            float vu0 = bottom ? INNER : 0.0F;
-            float vu1 = top ? 1.0F - INNER : 1.0F;
-            if (minAcross) {
-                rim(consumer, pose, axis, -RIM, vu0, INNER, vu1, true, true);
-            }
-            if (maxAcross) {
-                rim(consumer, pose, axis, 1.0F - INNER, vu0, 1.0F + RIM, vu1, false, true);
-            }
+            VertexConsumer halo = buffers.getBuffer(RenderType.entityTranslucentEmissive(OUTLINE_TEXTURE, false));
+            outline(halo, pose, axis, top, bottom, minAcross, maxAcross, true);
+            VertexConsumer rim = buffers.getBuffer(RenderType.entityCutoutNoCull(OUTLINE_TEXTURE));
+            outline(rim, pose, axis, top, bottom, minAcross, maxAcross, false);
         }
     }
 
-    /**
-     * Drop every other (then three of four) interior window quads as the camera pulls
-     * away so a 50×50 portal does not submit thousands of translucent faces.
-     * Perimeter outline is never lod-skipped, or the rectangle would break up.
-     */
-    private static boolean shouldSkipLod(BlockPos pos) {
-        var camera = Minecraft.getInstance().gameRenderer.getMainCamera().getPosition();
-        double distSqr = camera.distanceToSqr(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5);
-        int parity = pos.getX() + pos.getY() + pos.getZ();
-        if (distSqr > 64 * 64 && (parity & 3) != 0) {
-            return true;
+    private static void outline(VertexConsumer consumer, PoseStack.Pose pose, Direction.Axis axis,
+                                boolean top, boolean bottom, boolean minAcross, boolean maxAcross, boolean halo) {
+        float depth = halo ? WormholeStyle.HALO_DEPTH : WormholeStyle.DEPTH;
+        float inner = halo ? WormholeStyle.RIM : -WormholeStyle.INNER;
+        float outer = halo ? WormholeStyle.HALO : WormholeStyle.RIM;
+        float a0 = minAcross ? -outer : 0.0F;
+        float a1 = maxAcross ? 1.0F + outer : 1.0F;
+        if (top) {
+            rim(consumer, pose, axis, a0, 1.0F + inner, a1, 1.0F + outer, false, false, depth, halo);
         }
-        return distSqr > 32 * 32 && (parity & 1) != 0;
+        if (bottom) {
+            rim(consumer, pose, axis, a0, -outer, a1, halo ? -WormholeStyle.RIM : WormholeStyle.INNER, true, false, depth, halo);
+        }
+        float vu0 = bottom ? (halo ? WormholeStyle.RIM : WormholeStyle.INNER) : 0.0F;
+        float vu1 = top ? (halo ? 1.0F - WormholeStyle.RIM : 1.0F - WormholeStyle.INNER) : 1.0F;
+        if (minAcross) {
+            rim(consumer, pose, axis, -outer, vu0, halo ? -WormholeStyle.RIM : WormholeStyle.INNER, vu1, true, true, depth, halo);
+        }
+        if (maxAcross) {
+            rim(consumer, pose, axis, halo ? 1.0F + WormholeStyle.RIM : 1.0F - WormholeStyle.INNER, vu0, 1.0F + outer, vu1, false, true, depth, halo);
+        }
     }
 
     private static Bounds portalBounds(Level level, BlockPos pos, Direction.Axis axis) {
@@ -167,36 +132,29 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
     }
 
     private static void swirlFace(VertexConsumer consumer, PoseStack.Pose pose, Direction.Axis axis, BlockPos pos,
-                                  Bounds bounds, float time, float depth, int r, int g, int b, float layer) {
-        swirlVertex(consumer, pose, axis, pos, bounds, 0.0F, 0.0F, depth, time, r, g, b, layer);
-        swirlVertex(consumer, pose, axis, pos, bounds, 1.0F, 0.0F, depth, time, r, g, b, layer);
-        swirlVertex(consumer, pose, axis, pos, bounds, 1.0F, 1.0F, depth, time, r, g, b, layer);
-        swirlVertex(consumer, pose, axis, pos, bounds, 0.0F, 1.0F, depth, time, r, g, b, layer);
+                                  Bounds bounds, float time, float depth, int portalRgb) {
+        float o = WormholeStyle.OVERLAP;
+        swirlVertex(consumer, pose, axis, pos, bounds, -o, -o, depth, time, portalRgb);
+        swirlVertex(consumer, pose, axis, pos, bounds, 1.0F + o, -o, depth, time, portalRgb);
+        swirlVertex(consumer, pose, axis, pos, bounds, 1.0F + o, 1.0F + o, depth, time, portalRgb);
+        swirlVertex(consumer, pose, axis, pos, bounds, -o, 1.0F + o, depth, time, portalRgb);
+        swirlVertex(consumer, pose, axis, pos, bounds, -o, -o, depth, time, portalRgb);
+        swirlVertex(consumer, pose, axis, pos, bounds, -o, 1.0F + o, depth, time, portalRgb);
+        swirlVertex(consumer, pose, axis, pos, bounds, 1.0F + o, 1.0F + o, depth, time, portalRgb);
+        swirlVertex(consumer, pose, axis, pos, bounds, 1.0F + o, -o, depth, time, portalRgb);
     }
 
     private static void swirlVertex(VertexConsumer consumer, PoseStack.Pose pose, Direction.Axis axis, BlockPos pos,
-                                    Bounds bounds, float localAcross, float localUp, float depth, float time,
-                                    int r, int g, int b, float layer) {
+                                    Bounds bounds, float localAcross, float localUp, float depth, float time, int portalRgb) {
         float across = (axis == Direction.Axis.X ? pos.getZ() : pos.getX()) + localAcross;
         float up = pos.getY() + localUp;
         float centerAcross = (bounds.minAcross + bounds.maxAcross + 1) * 0.5F;
         float centerUp = (bounds.minY + bounds.maxY + 1) * 0.5F;
-        float dx = across - centerAcross;
-        float dy = up - centerUp;
-        float dist = Mth.sqrt(dx * dx + dy * dy);
-        float ang = (float) Math.atan2(dy, dx) + time * 0.14F;
-        float u = 0.5F + 0.45F * Mth.cos(ang) * (0.15F + dist * 0.12F);
-        float v = 0.5F + 0.45F * Mth.sin(ang) * (0.15F + dist * 0.12F);
-        float funnel = Mth.clamp(dist / 3.5F, 0.0F, 1.0F);
-        float shade = 0.12F + 0.88F * funnel;
-        int vr = (int) (r * shade * (0.35F + 0.65F * layer));
-        int vg = (int) (g * shade * (0.28F + 0.55F * layer));
-        int vb = (int) (Math.min(255, b * 1.15F) * (0.22F + 0.55F * funnel) * layer);
-        int a = (int) ((0.55F + 0.35F * funnel) * layer * 255.0F);
+        WormholeStyle.vortexRgb(portalRgb, across - centerAcross, up - centerUp, time, RGB);
         if (axis == Direction.Axis.X) {
-            vertex(consumer, pose, depth, localUp, localAcross, u, v, vr, vg, vb, a, 1, 0, 0);
+            vertex(consumer, pose, depth, localUp, localAcross, 0.0F, 0.0F, RGB[0], RGB[1], RGB[2], WormholeStyle.VORTEX_ALPHA, 1, 0, 0);
         } else {
-            vertex(consumer, pose, localAcross, localUp, depth, u, v, vr, vg, vb, a, 0, 0, 1);
+            vertex(consumer, pose, localAcross, localUp, depth, 0.0F, 0.0F, RGB[0], RGB[1], RGB[2], WormholeStyle.VORTEX_ALPHA, 0, 0, 1);
         }
     }
 
@@ -216,39 +174,41 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
         return axis == Direction.Axis.X ? pos.offset(0, 0, steps) : pos.offset(steps, 0, 0);
     }
 
-    private static void rim(VertexConsumer consumer, PoseStack.Pose pose, Direction.Axis axis,
-                            float a0, float u0, float a1, float u1, boolean innerHighU) {
-        rim(consumer, pose, axis, a0, u0, a1, u1, innerHighU, false);
-    }
-
     /**
-     * One box. Front faces (along the portal normal) are light gray; the face toward the
-     * window is the darker sidewall. {@code vertical} swaps which pair of faces is inner.
+     * One thin box. Front faces are light gray; the face toward the window is the darker
+     * sidewall so the aperture reads slightly recessed. Halo uses the same topology with
+     * vertex alpha {@link WormholeStyle#HALO_ALPHA}.
      */
     private static void rim(VertexConsumer consumer, PoseStack.Pose pose, Direction.Axis axis,
-                            float a0, float u0, float a1, float u1, boolean innerHigh, boolean vertical) {
-        float d0 = 0.5F - DEPTH;
-        float d1 = 0.5F + DEPTH;
-        int[] u0c = vertical ? GRAY_OUTER : (innerHigh ? GRAY_OUTER : GRAY_WALL);
-        int[] u1c = vertical ? GRAY_OUTER : (innerHigh ? GRAY_WALL : GRAY_OUTER);
-        int[] a0c = vertical ? (innerHigh ? GRAY_OUTER : GRAY_WALL) : GRAY_OUTER;
-        int[] a1c = vertical ? (innerHigh ? GRAY_WALL : GRAY_OUTER) : GRAY_OUTER;
-        quad(consumer, pose, axis, a0, u0, d0, a1, u0, d0, a1, u1, d0, a0, u1, d0, GRAY, 0, 0, -1);
-        quad(consumer, pose, axis, a0, u0, d1, a0, u1, d1, a1, u1, d1, a1, u0, d1, GRAY_HI, 0, 0, 1);
-        quad(consumer, pose, axis, a0, u0, d0, a0, u0, d1, a1, u0, d1, a1, u0, d0, u0c, 0, -1, 0);
-        quad(consumer, pose, axis, a0, u1, d0, a1, u1, d0, a1, u1, d1, a0, u1, d1, u1c, 0, 1, 0);
-        quad(consumer, pose, axis, a0, u0, d0, a0, u1, d0, a0, u1, d1, a0, u0, d1, a0c, -1, 0, 0);
-        quad(consumer, pose, axis, a1, u0, d0, a1, u0, d1, a1, u1, d1, a1, u1, d0, a1c, 1, 0, 0);
+                            float a0, float u0, float a1, float u1, boolean innerHigh, boolean vertical,
+                            float depth, boolean halo) {
+        float d0 = 0.5F - depth;
+        float d1 = 0.5F + depth;
+        int alpha = halo ? WormholeStyle.HALO_ALPHA : 255;
+        int[] front = halo ? WormholeStyle.GRAY_HI : WormholeStyle.GRAY;
+        int[] hi = halo ? WormholeStyle.GRAY_HI : WormholeStyle.GRAY_HI;
+        int[] wall = halo ? WormholeStyle.GRAY : WormholeStyle.GRAY_WALL;
+        int[] outer = halo ? WormholeStyle.GRAY : WormholeStyle.GRAY_OUTER;
+        int[] u0c = vertical ? outer : (innerHigh ? outer : wall);
+        int[] u1c = vertical ? outer : (innerHigh ? wall : outer);
+        int[] a0c = vertical ? (innerHigh ? outer : wall) : outer;
+        int[] a1c = vertical ? (innerHigh ? wall : outer) : outer;
+        quad(consumer, pose, axis, a0, u0, d0, a1, u0, d0, a1, u1, d0, a0, u1, d0, front, alpha, 0, 0, -1);
+        quad(consumer, pose, axis, a0, u0, d1, a0, u1, d1, a1, u1, d1, a1, u0, d1, hi, alpha, 0, 0, 1);
+        quad(consumer, pose, axis, a0, u0, d0, a0, u0, d1, a1, u0, d1, a1, u0, d0, u0c, alpha, 0, -1, 0);
+        quad(consumer, pose, axis, a0, u1, d0, a1, u1, d0, a1, u1, d1, a0, u1, d1, u1c, alpha, 0, 1, 0);
+        quad(consumer, pose, axis, a0, u0, d0, a0, u1, d0, a0, u1, d1, a0, u0, d1, a0c, alpha, -1, 0, 0);
+        quad(consumer, pose, axis, a1, u0, d0, a1, u0, d1, a1, u1, d1, a1, u1, d0, a1c, alpha, 1, 0, 0);
     }
 
     private static void quad(VertexConsumer consumer, PoseStack.Pose pose, Direction.Axis axis,
                              float a0, float u0, float d0, float a1, float u1, float d1,
                              float a2, float u2, float d2, float a3, float u3, float d3,
-                             int[] rgb, float nx, float ny, float nz) {
-        vertexAU(consumer, pose, axis, a0, u0, d0, 0.0F, 1.0F, rgb[0], rgb[1], rgb[2], 255, nx, ny, nz);
-        vertexAU(consumer, pose, axis, a1, u1, d1, 1.0F, 1.0F, rgb[0], rgb[1], rgb[2], 255, nx, ny, nz);
-        vertexAU(consumer, pose, axis, a2, u2, d2, 1.0F, 0.0F, rgb[0], rgb[1], rgb[2], 255, nx, ny, nz);
-        vertexAU(consumer, pose, axis, a3, u3, d3, 0.0F, 0.0F, rgb[0], rgb[1], rgb[2], 255, nx, ny, nz);
+                             int[] rgb, int alpha, float nx, float ny, float nz) {
+        vertexAU(consumer, pose, axis, a0, u0, d0, 0.0F, 1.0F, rgb[0], rgb[1], rgb[2], alpha, nx, ny, nz);
+        vertexAU(consumer, pose, axis, a1, u1, d1, 1.0F, 1.0F, rgb[0], rgb[1], rgb[2], alpha, nx, ny, nz);
+        vertexAU(consumer, pose, axis, a2, u2, d2, 1.0F, 0.0F, rgb[0], rgb[1], rgb[2], alpha, nx, ny, nz);
+        vertexAU(consumer, pose, axis, a3, u3, d3, 0.0F, 0.0F, rgb[0], rgb[1], rgb[2], alpha, nx, ny, nz);
     }
 
     private static void vertexAU(VertexConsumer consumer, PoseStack.Pose pose, Direction.Axis axis,
@@ -267,7 +227,7 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
                 .setColor(r, g, b, a)
                 .setUv(u, v)
                 .setOverlay(OverlayTexture.NO_OVERLAY)
-                .setLight(FULL_BRIGHT)
+                .setLight(WormholeStyle.FULL_BRIGHT)
                 .setNormal(pose, nx, ny, nz);
     }
 

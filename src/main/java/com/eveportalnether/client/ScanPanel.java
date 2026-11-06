@@ -2,7 +2,7 @@ package com.eveportalnether.client;
 
 import com.eveportalnether.EvePortalNether;
 import com.eveportalnether.network.PortalScanPayload;
-import com.mojang.blaze3d.systems.RenderSystem;
+import com.eveportalnether.world.WormholeStyle;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -16,9 +16,6 @@ import net.minecraft.resources.ResourceLocation;
  */
 public final class ScanPanel {
     public static final ResourceLocation LAYER_ID = ResourceLocation.fromNamespaceAndPath(EvePortalNether.MODID, "scan_panel");
-    private static final ResourceLocation FRAME_TEXTURE = ResourceLocation.fromNamespaceAndPath(EvePortalNether.MODID, "textures/block/wormhole_frame.png");
-    private static final ResourceLocation WINDOW_TEXTURE = ResourceLocation.fromNamespaceAndPath(EvePortalNether.MODID, "textures/block/wormhole_center.png");
-    private static final int WINDOW_FRAMES = 32;
 
     private static final int WIDTH = 250;
     private static final int HEIGHT = 102;
@@ -153,39 +150,27 @@ public final class ScanPanel {
         int oy = by + (bh - ph) / 2;
 
         int tint = data.color().tint(data.stage() < 0 ? 3 : data.stage());
-        g.fill(ox + cell, oy + cell, ox + pw - cell, oy + ph - cell, argb(alpha * 0.3F, tint));
-
-        RenderSystem.enableBlend();
-        float flicker = data.stage() >= 2 ? 0.75F + 0.25F * (float) Math.sin(now * 0.9F) : 1.0F;
-        g.setColor(((tint >> 16) & 0xFF) / 255.0F * flicker, ((tint >> 8) & 0xFF) / 255.0F * flicker, (tint & 0xFF) / 255.0F * flicker, alpha);
-        int frame = ((int) (now / 2)) % WINDOW_FRAMES;
+        int innerX0 = ox + cell;
+        int innerY0 = oy + cell;
+        int innerX1 = ox + pw - cell;
+        int innerY1 = oy + ph - cell;
+        float cx0 = (w - 1) * 0.5F;
+        float cy0 = (h - 1) * 0.5F;
         boolean compact = cell <= 1 || w * h > 256;
         if (compact) {
-            g.fill(ox + cell, oy + cell, ox + pw - cell, oy + ph - cell, argb(alpha * 0.85F, tint));
+            g.fill(innerX0, innerY0, innerX1, innerY1, argb(alpha, WormholeStyle.vortexRgb(tint, 0.0F, 0.0F, now)));
         } else {
             for (int cx = 1; cx < w - 1; cx++) {
                 for (int cy = 1; cy < h - 1; cy++) {
-                    g.blit(WINDOW_TEXTURE, ox + cx * cell, oy + cy * cell, cell, cell, 0, frame * 16, 16, 16, 16, 16 * WINDOW_FRAMES);
+                    int rgb = WormholeStyle.vortexRgb(tint, cx - cx0, cy - cy0, now);
+                    g.fill(ox + cx * cell, oy + cy * cell, ox + (cx + 1) * cell, oy + (cy + 1) * cell, argb(alpha, rgb));
                 }
             }
         }
-        g.setColor(1.0F, 1.0F, 1.0F, alpha);
-        if (compact) {
-            g.fill(ox, oy, ox + pw, oy + cell, argb(alpha, 0x2A3440));
-            g.fill(ox, oy + ph - cell, ox + pw, oy + ph, argb(alpha, 0x2A3440));
-            g.fill(ox, oy, ox + cell, oy + ph, argb(alpha, 0x2A3440));
-            g.fill(ox + pw - cell, oy, ox + pw, oy + ph, argb(alpha, 0x2A3440));
-        } else {
-            for (int cx = 0; cx < w; cx++) {
-                for (int cy = 0; cy < h; cy++) {
-                    if (cx == 0 || cy == 0 || cx == w - 1 || cy == h - 1) {
-                        g.blit(FRAME_TEXTURE, ox + cx * cell, oy + cy * cell, cell, cell, 0, 0, 16, 16, 16, 16);
-                    }
-                }
-            }
-        }
-        g.setColor(1.0F, 1.0F, 1.0F, 1.0F);
-        RenderSystem.disableBlend();
+        int rimPx = Math.max(1, Math.round(WormholeStyle.RIM * Math.max(cell, 8)));
+        int haloPx = Math.max(rimPx + 1, Math.round(WormholeStyle.HALO * Math.max(cell, 8)));
+        ring(g, innerX0 - haloPx, innerY0 - haloPx, innerX1 + haloPx, innerY1 + haloPx, haloPx, argb(alpha * WormholeStyle.HALO_ALPHA / 255.0F, WormholeStyle.grayHiRgb()));
+        ring(g, innerX0 - rimPx, innerY0 - rimPx, innerX1 + rimPx, innerY1 + rimPx, rimPx, argb(alpha, WormholeStyle.grayHiRgb()));
 
         if (isLost) {
             for (int i = 0; i < 5; i++) {
@@ -288,6 +273,16 @@ public final class ScanPanel {
         h *= 0x5bd1e995;
         h ^= h >>> 15;
         return (h & 0xFFFF) / 65536.0F;
+    }
+
+    private static void ring(GuiGraphics g, int x0, int y0, int x1, int y1, int thickness, int color) {
+        if (thickness <= 0 || x1 <= x0 || y1 <= y0) {
+            return;
+        }
+        g.fill(x0, y0, x1, y0 + thickness, color);
+        g.fill(x0, y1 - thickness, x1, y1, color);
+        g.fill(x0, y0 + thickness, x0 + thickness, y1 - thickness, color);
+        g.fill(x1 - thickness, y0 + thickness, x1, y1 - thickness, color);
     }
 
     private static int argb(float alpha, int rgb) {

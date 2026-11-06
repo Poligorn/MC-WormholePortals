@@ -7,6 +7,7 @@ import com.eveportalnether.registry.ModBlocks;
 import com.eveportalnether.scan.ScanReveal;
 import com.eveportalnether.world.PortalShape;
 import com.eveportalnether.world.PortalTier;
+import com.eveportalnether.world.WormholeStyle;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.gametest.framework.GameTest;
@@ -138,6 +139,28 @@ public final class PortalSizeTests {
     @GameTest(template = "empty")
     public static void scanRevealLastsSixtySeconds(GameTestHelper helper) {
         assertEq(helper, ScanReveal.DURATION_TICKS, 1200, "scan reveal duration ticks");
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void vortexIsOpaqueAndRimIsThin(GameTestHelper helper) {
+        if (WormholeStyle.RIM < 0.04F || WormholeStyle.RIM > 0.08F) {
+            helper.fail("solid rim width " + WormholeStyle.RIM + " should be a thin 0.04–0.08 line");
+            return;
+        }
+        if (WormholeStyle.DEPTH > 0.12F) {
+            helper.fail("rim depth " + WormholeStyle.DEPTH + " is a slab, not a modest recess");
+            return;
+        }
+        assertEq(helper, WormholeStyle.VORTEX_ALPHA, 255, "vortex vertex alpha");
+        int dark = WormholeStyle.vortexRgb(0x3366CC, 0.0F, 0.0F, 0.0F);
+        int r = dark >> 16 & 0xFF;
+        int g = dark >> 8 & 0xFF;
+        int b = dark & 0xFF;
+        if (r + g + b < 80) {
+            helper.fail("vortex centre too dark to read at night: " + r + "," + g + "," + b);
+            return;
+        }
         helper.succeed();
     }
 
