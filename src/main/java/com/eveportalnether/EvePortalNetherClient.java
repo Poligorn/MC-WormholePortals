@@ -50,6 +50,7 @@ public class EvePortalNetherClient {
         NeoForge.EVENT_BUS.addListener(EvePortalNetherClient::onLoggingOut);
         NeoForge.EVENT_BUS.addListener(EvePortalNetherClient::onClientTick);
         NeoForge.EVENT_BUS.addListener(EvePortalNetherClient::onCameraAngles);
+        NeoForge.EVENT_BUS.addListener(ScanRevealClient::onAfterLevel);
     }
 
     private static void onClientTick(ClientTickEvent.Post event) {

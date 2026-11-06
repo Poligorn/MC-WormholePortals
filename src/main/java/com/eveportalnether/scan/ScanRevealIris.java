@@ -22,7 +22,7 @@ public final class ScanRevealIris {
      * 0 = fully opaque vortex, 1 = skip vortex.
      * {@code expireAt} is exclusive, same units as {@code now}.
      */
-    public float sample(boolean revealing, boolean destinationReady, long now, long expireAt) {
+    public float sample(boolean revealing, boolean destinationReady, float now, long expireAt) {
         if (!revealing || now >= expireAt) {
             clockStart = -1L;
             return 0.0F;
@@ -31,26 +31,30 @@ public final class ScanRevealIris {
             return 0.0F;
         }
         if (clockStart < 0L) {
-            clockStart = now;
+            clockStart = (long) now;
         }
         int trans = ScanReveal.TRANSITION_TICKS;
-        long remaining = expireAt - now;
+        float remaining = expireAt - now;
         if (remaining <= trans) {
-            return ScanReveal.ease(remaining / (float) trans);
+            return ScanReveal.ease(remaining / trans);
         }
-        long openAge = now - clockStart;
+        float openAge = now - clockStart;
         if (openAge < trans) {
-            return ScanReveal.ease(openAge / (float) trans);
+            return ScanReveal.ease(openAge / trans);
         }
         return 1.0F;
     }
 
     /**
-     * Draw the local vortex only in the viewer's own dimension. When Immersive Portals
-     * renders the destination world, {@code rendered} is that other dimension — an
-     * opaque dest-side vortex would fill the through-view and look like no reveal.
+     * Skip the dest-side vortex only for <em>this</em> revealing window while Immersive
+     * Portals is rendering the other dimension. Unrelated wormholes in that nested view
+     * keep their vortex so we do not blanket-hide portals.
      */
-    public static boolean drawVortexForDimension(ResourceKey<Level> rendered, ResourceKey<Level> viewer) {
-        return viewer == null || rendered.equals(viewer);
+    public static boolean drawVortexForDimension(ResourceKey<Level> rendered, ResourceKey<Level> viewer,
+                                                 boolean thisWindowRevealing) {
+        if (viewer == null || rendered.equals(viewer)) {
+            return true;
+        }
+        return !thisWindowRevealing;
     }
 }

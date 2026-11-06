@@ -163,6 +163,12 @@ public final class PortalSizeTests {
             helper.fail("iris stays closed until destination is ready");
             return;
         }
+        for (int tick = 1; tick < ScanReveal.TRANSITION_TICKS; tick++) {
+            if (iris.sample(true, false, tick, expire) != 0.0F || iris.clockStart() != -1L) {
+                helper.fail("iris must not start the 2s clock while dest chunks are unready");
+                return;
+            }
+        }
         if (iris.sample(true, true, 1L, expire) != 0.0F || iris.clockStart() != 1L) {
             helper.fail("iris clock must start at the first ready tick (ease 0 at age 0)");
             return;
@@ -186,20 +192,44 @@ public final class PortalSizeTests {
 
     @GameTest(template = "empty")
     public static void destDimensionVortexWouldOccludeThroughView(GameTestHelper helper) {
-        if (!ScanRevealIris.drawVortexForDimension(Level.OVERWORLD, Level.OVERWORLD)) {
+        if (!ScanRevealIris.drawVortexForDimension(Level.OVERWORLD, Level.OVERWORLD, true)) {
             helper.fail("home overworld must still draw the vortex");
             return;
         }
-        if (ScanRevealIris.drawVortexForDimension(Level.NETHER, Level.OVERWORLD)) {
-            helper.fail("nether rendered for an overworld viewer must not draw the dest vortex");
+        if (ScanRevealIris.drawVortexForDimension(Level.NETHER, Level.OVERWORLD, true)) {
+            helper.fail("nether rendered for this revealing window must not draw the dest vortex");
             return;
         }
-        if (ScanRevealIris.drawVortexForDimension(Level.OVERWORLD, Level.NETHER)) {
-            helper.fail("overworld rendered for a nether viewer must not draw the dest vortex");
+        if (!ScanRevealIris.drawVortexForDimension(Level.NETHER, Level.OVERWORLD, false)) {
+            helper.fail("unrelated nether wormhole in a nested view must keep its vortex");
             return;
         }
-        if (!ScanRevealIris.drawVortexForDimension(Level.NETHER, null)) {
+        if (ScanRevealIris.drawVortexForDimension(Level.OVERWORLD, Level.NETHER, true)) {
+            helper.fail("overworld rendered for this revealing window must not draw the dest vortex");
+            return;
+        }
+        if (!ScanRevealIris.drawVortexForDimension(Level.OVERWORLD, Level.NETHER, false)) {
+            helper.fail("unrelated overworld wormhole in a nested view must keep its vortex");
+            return;
+        }
+        if (!ScanRevealIris.drawVortexForDimension(Level.NETHER, null, true)) {
             helper.fail("no viewer (menu) keeps the vortex");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void destApertureTucksUnderRim(GameTestHelper helper) {
+        if (WormholeStyle.APERTURE_FILL < WormholeStyle.RIM * 2.0F) {
+            helper.fail("IP dest quad extra " + WormholeStyle.APERTURE_FILL
+                    + " must reach under both sides of the " + WormholeStyle.RIM + " rim");
+            return;
+        }
+        int inner = 5;
+        float aperture = inner + WormholeStyle.APERTURE_FILL;
+        if (aperture <= inner) {
+            helper.fail("aperture must be larger than the inner window so dest fills to the rim");
             return;
         }
         helper.succeed();

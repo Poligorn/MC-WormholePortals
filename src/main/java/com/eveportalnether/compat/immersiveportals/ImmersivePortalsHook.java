@@ -48,4 +48,17 @@ public final class ImmersivePortalsHook {
     public static boolean hasRevealPortal(Level level, BlockPos origin, Direction.Axis axis, int width, int height) {
         return available() && ImmersivePortalsCompat.hasTaggedPortalInWindow(level, origin, axis, width, height);
     }
+
+    /**
+     * Client: tagged portal exists, is synced, and dest-side sections are compiled.
+     * Opening the iris on entity presence alone exposes an unmeshed dest.
+     */
+    public static boolean isDestinationViewReady(Level level, BlockPos origin, Direction.Axis axis, int width, int height) {
+        return available() && ImmersivePortalsCompat.isDestinationViewReady(level, origin, axis, width, height);
+    }
+
+    /** Client: Immersive Portals is currently rendering a nested portal world. */
+    public static boolean isNestedPortalRender() {
+        return available() && ImmersivePortalsCompat.isNestedPortalRender();
+    }
 }

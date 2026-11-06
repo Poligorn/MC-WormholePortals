@@ -5,6 +5,7 @@ import com.eveportalnether.block.WormholeBlock;
 import com.eveportalnether.block.entity.WormholeBlockEntity;
 import com.eveportalnether.registry.ModBlocks;
 import com.eveportalnether.scan.ScanRevealIris;
+import com.eveportalnether.world.PortalShape;
 import com.eveportalnether.world.WormholeStyle;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
@@ -13,21 +14,26 @@ import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
+import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
+import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 
 /**
  * Window interior: fully opaque portal-tinted pixel vortex (cutout + depth write) so the
  * same-world terrain cannot show through. After a successful scan the scanning client
- * irises the vortex over 2s only when a tagged IP portal is present; other clients keep
- * the vortex. A missing destination never punches a hole. When Immersive Portals is
- * rendering the destination dimension, this BER is skipped so the dest-side vortex
- * cannot fill the through-view.
+ * irises the vortex over 2s only when a tagged IP portal is present <em>and</em> the dest
+ * view is compiled; other clients keep the vortex. A missing destination never punches a
+ * hole. Dest-side BER is skipped only for this revealing window so the dest vortex cannot
+ * fill the through-view; unrelated nested wormholes keep theirs. IP composites dest after
+ * this BER, so {@link #renderRevealOverlay} redraws the iris on {@code AFTER_LEVEL}.
  * <p>
  * Border: a thin fullbright white line (~0.03 block) in the invisible frame ring, plus a
  * short outer halo. The solid line uses {@code entityCutoutNoCull} so clouds cannot punch
@@ -58,20 +64,61 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
         Level level = entity.getLevel();
         BlockPos pos = entity.getBlockPos();
         Direction.Axis axis = state.getValue(WormholeBlock.AXIS);
-        boolean home = isViewerHomeDimension(level);
-        boolean border = home && isBorder(level, pos, axis);
-        PoseStack.Pose pose = poseStack.last();
-        // Remote IP world: skip vortex+rim or the dest-side overlay fills the through-view.
-        float iris = home ? ScanRevealClient.irisProgress(level, pos) : 1.0F;
-        if (iris < 0.999F) {
+        if (!shouldDrawVortex(level, pos)) {
+            return;
+        }
+        float iris = ScanRevealClient.irisProgress(level, pos, partialTick);
+        renderWindow(level, pos, state, axis, poseStack.last(), buffers, iris, iris < 0.999F, true, partialTick);
+    }
+
+    /**
+     * Drawn after Immersive Portals composites dest into the portal quad. Covers an unready
+     * dest with the opaque vortex, then irises the hole over 2s. Rim is redrawn on top so
+     * dest cannot overdraw the white frame.
+     */
+    static void renderRevealOverlay(RenderLevelStageEvent event, Level level, BlockPos origin,
+                                    Direction.Axis axis, int width, int height, float iris) {
+        Vec3 cam = event.getCamera().getPosition();
+        Frustum frustum = event.getFrustum();
+        PoseStack poseStack = new PoseStack();
+        poseStack.mulPose(event.getModelViewMatrix());
+        MultiBufferSource.BufferSource buffers = Minecraft.getInstance().renderBuffers().bufferSource();
+        boolean drawVortex = iris < 0.999F;
+        float partial = event.getPartialTick().getGameTimeDeltaPartialTick(false);
+        for (int across = 1; across < width - 1; across++) {
+            for (int up = 1; up < height - 1; up++) {
+                BlockPos pos = PortalShape.offset(origin, across, up, axis);
+                if (frustum != null && !frustum.isVisible(new AABB(pos))) {
+                    continue;
+                }
+                BlockState state = level.getBlockState(pos);
+                if (!(state.getBlock() instanceof WormholeBlock) || state.getValue(WormholeBlock.FRAME)) {
+                    continue;
+                }
+                boolean border = isBorder(level, pos, axis);
+                if (!drawVortex && !border) {
+                    continue;
+                }
+                poseStack.pushPose();
+                poseStack.translate(pos.getX() - cam.x, pos.getY() - cam.y, pos.getZ() - cam.z);
+                renderWindow(level, pos, state, axis, poseStack.last(), buffers, iris, drawVortex, true, partial);
+                poseStack.popPose();
+            }
+        }
+        buffers.endBatch();
+    }
+
+    private static void renderWindow(Level level, BlockPos pos, BlockState state, Direction.Axis axis,
+                                     PoseStack.Pose pose, MultiBufferSource buffers, float iris,
+                                     boolean drawVortex, boolean drawRim, float partialTick) {
+        if (drawVortex) {
             Bounds bounds = portalBounds(level, pos, axis);
             int portalRgb = state.getValue(WormholeBlock.COLOR).tint(state.getValue(WormholeBlock.DECAY));
             float time = level.getGameTime() + partialTick;
             VertexConsumer vortex = buffers.getBuffer(RenderType.entityCutoutNoCull(OUTLINE_TEXTURE));
             swirlFace(vortex, pose, axis, pos, bounds, time, 0.5F, portalRgb, iris);
         }
-
-        if (border) {
+        if (drawRim && isBorder(level, pos, axis)) {
             boolean top = !isWindow(level, pos.above());
             boolean bottom = !isWindow(level, pos.below());
             boolean minAcross = !isWindow(level, across(pos, axis, -1));
@@ -198,15 +245,13 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
 
     /**
      * Immersive Portals keeps the player in their origin dimension while rendering
-     * the destination. An opaque vortex in that other {@link Level} would cover the
-     * through-view. Compare dimension keys, not instance identity.
+     * the destination. Skip dest-side vortex only for this revealing window.
      */
-    static boolean isViewerHomeDimension(Level rendered) {
+    static boolean shouldDrawVortex(Level rendered, BlockPos pos) {
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null) {
-            return ScanRevealIris.drawVortexForDimension(rendered.dimension(), null);
-        }
-        return ScanRevealIris.drawVortexForDimension(rendered.dimension(), minecraft.player.level().dimension());
+        ResourceKey<Level> viewer = minecraft.player == null ? null : minecraft.player.level().dimension();
+        boolean revealing = ScanRevealClient.isRevealing(rendered, pos);
+        return ScanRevealIris.drawVortexForDimension(rendered.dimension(), viewer, revealing);
     }
 
     private static boolean isBorder(Level level, BlockPos pos, Direction.Axis axis) {

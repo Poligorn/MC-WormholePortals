@@ -2,8 +2,10 @@ package com.eveportalnether.compat.immersiveportals;
 
 import com.eveportalnether.EvePortalNether;
 import com.eveportalnether.world.PortalShape;
+import com.eveportalnether.world.WormholeStyle;
 import com.eveportalnether.world.data.PortalPair;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceKey;
@@ -19,9 +21,11 @@ import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
+import qouteall.imm_ptl.core.ClientWorldLoader;
 import qouteall.imm_ptl.core.api.PortalAPI;
 import qouteall.imm_ptl.core.chunk_loading.ChunkLoader;
 import qouteall.imm_ptl.core.portal.Portal;
+import qouteall.imm_ptl.core.render.context_management.PortalRendering;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -75,6 +79,8 @@ public final class ImmersivePortalsCompat {
 
         int innerW = Math.max(1, pair.getWidth() - 2);
         int innerH = Math.max(1, pair.getHeight() - 2);
+        double apertureW = innerW + WormholeStyle.APERTURE_FILL;
+        double apertureH = innerH + WormholeStyle.APERTURE_FILL;
         Vec3 axisW = pair.getAxis() == Direction.Axis.X ? new Vec3(0.0, 0.0, 1.0) : new Vec3(1.0, 0.0, 0.0);
         Vec3 axisH = new Vec3(0.0, 1.0, 0.0);
         Vec3 overworldCenter = PortalShape.windowCenter(pair.getOverworldOrigin(), pair.getAxis(), pair.getWidth(), pair.getHeight());
@@ -86,8 +92,8 @@ public final class ImmersivePortalsCompat {
         SPAWNED.put(player.getUUID(), spawned);
         SPAWNING.set(Boolean.TRUE);
         try {
-            spawnFaced(overworld, overworldCenter, Level.NETHER, netherCenter, axisW, axisH, innerW, innerH, player, spawned);
-            spawnFaced(nether, netherCenter, Level.OVERWORLD, overworldCenter, axisW, axisH, innerW, innerH, player, spawned);
+            spawnFaced(overworld, overworldCenter, Level.NETHER, netherCenter, axisW, axisH, apertureW, apertureH, player, spawned);
+            spawnFaced(nether, netherCenter, Level.OVERWORLD, overworldCenter, axisW, axisH, apertureW, apertureH, player, spawned);
             addLoader(player, Level.NETHER, pair.getNetherOrigin(), innerW, innerH, spawned);
             addLoader(player, Level.OVERWORLD, pair.getOverworldOrigin(), innerW, innerH, spawned);
         } catch (RuntimeException exception) {
@@ -107,13 +113,72 @@ public final class ImmersivePortalsCompat {
     }
 
     static boolean hasTaggedPortalInWindow(Level level, BlockPos origin, Direction.Axis axis, int width, int height) {
-        if (level == null || origin == null || axis == null || width <= 0 || height <= 0) {
+        return findRevealPortal(level, origin, axis, width, height) != null;
+    }
+
+    static boolean isNestedPortalRender() {
+        return PortalRendering.isRendering();
+    }
+
+    /**
+     * Entity present, orientation synced, dest client world exists, and dest sections
+     * at the portal center and four extent points are compiled (not {@code Null RenderChunk}).
+     */
+    static boolean isDestinationViewReady(Level level, BlockPos origin, Direction.Axis axis, int width, int height) {
+        if (level == null || !level.isClientSide()) {
             return false;
+        }
+        Portal portal = findRevealPortal(level, origin, axis, width, height);
+        if (portal == null || portal.isRemoved()) {
+            return false;
+        }
+        Vec3 dest = portal.getDestPos();
+        Vec3 axisW = portal.getAxisW();
+        Vec3 axisH = portal.getAxisH();
+        ResourceKey<Level> destDim = portal.getDestDim();
+        if (dest == null || destDim == null || axisW == null || axisH == null) {
+            return false;
+        }
+        if (portal.getWidth() < 0.5 || portal.getHeight() < 0.5) {
+            return false;
+        }
+        try {
+            ClientLevel destWorld = ClientWorldLoader.getOptionalWorld(destDim);
+            if (destWorld == null) {
+                return false;
+            }
+            LevelRenderer renderer = ClientWorldLoader.WORLD_RENDERER_MAP.get(destDim);
+            if (renderer == null) {
+                return false;
+            }
+            double hw = portal.getWidth() * 0.5;
+            double hh = portal.getHeight() * 0.5;
+            return sectionReady(destWorld, renderer, dest)
+                    && sectionReady(destWorld, renderer, dest.add(axisW.scale(hw)))
+                    && sectionReady(destWorld, renderer, dest.add(axisW.scale(-hw)))
+                    && sectionReady(destWorld, renderer, dest.add(axisH.scale(hh)))
+                    && sectionReady(destWorld, renderer, dest.add(axisH.scale(-hh)));
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean sectionReady(ClientLevel destWorld, LevelRenderer renderer, Vec3 pos) {
+        BlockPos block = BlockPos.containing(pos);
+        if (!destWorld.getChunkSource().hasChunk(block.getX() >> 4, block.getZ() >> 4)) {
+            return false;
+        }
+        return renderer.isSectionCompiled(block);
+    }
+
+    private static Portal findRevealPortal(Level level, BlockPos origin, Direction.Axis axis, int width, int height) {
+        if (level == null || origin == null || axis == null || width <= 0 || height <= 0) {
+            return null;
         }
         AABB box = PortalShape.windowBox(origin, axis, width, height).inflate(1.0);
         for (Portal portal : level.getEntitiesOfClass(Portal.class, box)) {
             if (isRevealPortal(portal, origin, axis, width, height, box)) {
-                return true;
+                return portal;
             }
         }
         // IP portals can have a degenerate bounding box until PortalSyncPacket applies
@@ -121,11 +186,11 @@ public final class ImmersivePortalsCompat {
         if (level.isClientSide() && level instanceof ClientLevel clientLevel) {
             for (Entity entity : clientLevel.entitiesForRendering()) {
                 if (entity instanceof Portal portal && isRevealPortal(portal, origin, axis, width, height, box)) {
-                    return true;
+                    return portal;
                 }
             }
         }
-        return false;
+        return null;
     }
 
     private static boolean isRevealPortal(Portal portal, BlockPos origin, Direction.Axis axis,

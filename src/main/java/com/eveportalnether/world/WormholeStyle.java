@@ -19,6 +19,11 @@ public final class WormholeStyle {
     public static final float HALO_DEPTH = 0.10F;
     /** Overlap onto the window so the rim meets the opaque vortex with no crack. */
     public static final float INNER = 0.02F;
+    /**
+     * Extra Immersive Portals quad size (both axes) so the live destination tucks under
+     * the 0.03 rim instead of leaving a dark inset inside the white frame.
+     */
+    public static final float APERTURE_FILL = 0.08F;
     /** Overlap between adjacent vortex tiles. */
     public static final float OVERLAP = 0.02F;
     public static final int VORTEX_ALPHA = 255;

@@ -8,11 +8,13 @@ import com.eveportalnether.world.PortalShape;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
+import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 
 /**
  * Local 60s through-view gate. Only the scanning client receives {@link ScanRevealPayload},
  * so other players keep drawing the vortex. The iris never opens unless a tagged IP portal
- * is actually present, so a missing destination cannot expose the local world.
+ * is present and dest sections are compiled, so a missing or unmeshed destination cannot
+ * expose the local world.
  */
 public final class ScanRevealClient {
     private static ScanRevealPayload active;
@@ -55,8 +57,41 @@ public final class ScanRevealClient {
         if (!waitLogged && IRIS.clockStart() < 0L && now + active.durationTicks() - expireAt >= 20L) {
             waitLogged = true;
             EvePortalNether.LOGGER.warn(
-                    "Scan reveal is active but no tagged Immersive Portals entity is visible yet; vortex stays opaque");
+                    "Scan reveal is active but the destination through-view is not ready yet; vortex stays opaque");
         }
+    }
+
+    /**
+     * Immersive Portals composites the dest after block entities. Redraw the vortex with
+     * the iris hole on {@code AFTER_LEVEL} so the 2s ease is actually visible, and so an
+     * unready dest cannot flash through.
+     */
+    public static void onAfterLevel(RenderLevelStageEvent event) {
+        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_LEVEL) {
+            return;
+        }
+        if (ImmersivePortalsHook.isNestedPortalRender()) {
+            return;
+        }
+        ScanRevealPayload payload = active;
+        Minecraft minecraft = Minecraft.getInstance();
+        if (payload == null || payload.isClear() || minecraft.level == null) {
+            return;
+        }
+        Level level = minecraft.level;
+        BlockPos origin = windowOrigin(level, payload);
+        if (!isRevealing(level, origin)) {
+            return;
+        }
+        if (!ImmersivePortalsHook.hasRevealPortal(level, origin, payload.axis(), payload.width(), payload.height())) {
+            return;
+        }
+        // Dest sections compile during IP's pass, which is after BER. Recheck before overlay.
+        readyTick = Long.MIN_VALUE;
+        float partial = event.getPartialTick().getGameTimeDeltaPartialTick(false);
+        float iris = irisProgress(level, origin, partial);
+        WormholePulseRenderer.renderRevealOverlay(event, level, origin, payload.axis(), payload.width(),
+                payload.height(), iris);
     }
 
     public static void clear() {
@@ -82,15 +117,19 @@ public final class ScanRevealClient {
 
     /**
      * 0 = fully opaque vortex, 1 = skip vortex (destination fills the aperture).
-     * Stays at 0 when Immersive Portals is absent or the reveal entity is not in the level.
+     * Stays at 0 until a tagged portal exists <em>and</em> dest sections are compiled.
      */
     public static float irisProgress(Level level, BlockPos pos) {
+        return irisProgress(level, pos, 0.0F);
+    }
+
+    public static float irisProgress(Level level, BlockPos pos, float partialTick) {
         boolean revealing = isRevealing(level, pos);
         boolean ready = revealing && destinationReady(level);
         if (level == null) {
             return 0.0F;
         }
-        return IRIS.sample(revealing, ready, level.getGameTime(), expireAt);
+        return IRIS.sample(revealing, ready, level.getGameTime() + partialTick, expireAt);
     }
 
     private static boolean destinationReady(Level level) {
@@ -104,7 +143,7 @@ public final class ScanRevealClient {
         long tick = level.getGameTime();
         if (tick != readyTick) {
             readyTick = tick;
-            readyCached = ImmersivePortalsHook.hasRevealPortal(
+            readyCached = ImmersivePortalsHook.isDestinationViewReady(
                     level, windowOrigin(level, payload), payload.axis(), payload.width(), payload.height());
         }
         return readyCached;
