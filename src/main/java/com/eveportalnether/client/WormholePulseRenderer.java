@@ -18,12 +18,16 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 
 /**
- * Window interior: emissive pulse over each window block (unchanged).
- * Perimeter: a single thin fullbright rectangle in the portal's assigned colour,
- * plus a same-colour alpha halo. No white/gold contour and no second nested frame.
- * Shaderless — fullbright quads, not bloom or coloured block light.
+ * Window interior: existing pulse over each window block.
+ * Border: a single luminous rim drawn in the invisible frame ring, with thickness along the
+ * portal normal so it reads from both faces and glancing angles.
+ * <p>
+ * The first outline sat as a 0.04-block same-colour strip <em>on</em> the window. The interior
+ * model is a full translucent plane at z=8 rendered after BEs ({@code COLOR_WRITE} only, no
+ * depth), so it overwrote those pixels; against a bright gold fill the strip had no contrast.
  */
 public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockEntity> {
     private static final ResourceLocation PULSE_TEXTURE =
@@ -32,12 +36,22 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
             ResourceLocation.fromNamespaceAndPath(EvePortalNether.MODID, "textures/block/wormhole_outline.png");
     private static final int FULL_BRIGHT = 0xF000F0;
     private static final float TILES = 4.0F;
-    private static final float LINE = 0.04F;
-    private static final float HALO = 0.14F;
     private static final float[] PULSE_DEPTHS = {0.47F, 0.53F};
-    private static final float[] OUTLINE_DEPTHS = {0.44F, 0.56F};
+    /** How far the core rim sits inside the 1-block invisible frame. */
+    private static final float RIM = 0.18F;
+    private static final float RIM_HALO = 0.34F;
+    /** Half-thickness along the portal normal (plane is 0.5). */
+    private static final float THICK = 0.10F;
+    private static final float HALO_THICK = 0.16F;
+    /** Tiny overlap onto the window; the part in the frame still shows if this is overdrawn. */
+    private static final float INNER = 0.02F;
 
     public WormholePulseRenderer(BlockEntityRendererProvider.Context context) {
+    }
+
+    @Override
+    public AABB getRenderBoundingBox(WormholeBlockEntity entity) {
+        return new AABB(entity.getBlockPos()).inflate(0.5);
     }
 
     @Override
@@ -79,34 +93,30 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
         }
 
         if (border) {
-            int rgb = state.getValue(WormholeBlock.COLOR).rgb();
-            int r = rgb >> 16 & 0xFF;
-            int g = rgb >> 8 & 0xFF;
-            int b = rgb & 0xFF;
-            int haloA = (int) (Mth.clamp(pulse * 0.22F, 0.04F, 0.28F) * 255.0F);
-            int lineA = (int) (Mth.clamp(pulse * 1.15F, 0.35F, 0.95F) * 255.0F);
+            int[] rgb = brighten(state.getValue(WormholeBlock.COLOR).rgb());
+            float glow = outlineGlow(decay, time, pos.getY(), across);
+            int haloA = (int) (0.42F * glow * 255.0F);
+            int lineA = (int) (0.94F * glow * 255.0F);
             VertexConsumer consumer = buffers.getBuffer(RenderType.entityTranslucentEmissive(OUTLINE_TEXTURE, false));
             boolean top = !isWindow(level, pos.above());
             boolean bottom = !isWindow(level, pos.below());
             boolean minAcross = !isWindow(level, across(pos, axis, -1));
             boolean maxAcross = !isWindow(level, across(pos, axis, 1));
-            for (float depth : OUTLINE_DEPTHS) {
-                if (top) {
-                    strip(consumer, pose, axis, 0.0F, 1.0F - HALO, 1.0F, 1.0F, depth, r, g, b, haloA);
-                    strip(consumer, pose, axis, 0.0F, 1.0F - LINE, 1.0F, 1.0F, depth, r, g, b, lineA);
-                }
-                if (bottom) {
-                    strip(consumer, pose, axis, 0.0F, 0.0F, 1.0F, HALO, depth, r, g, b, haloA);
-                    strip(consumer, pose, axis, 0.0F, 0.0F, 1.0F, LINE, depth, r, g, b, lineA);
-                }
-                if (minAcross) {
-                    strip(consumer, pose, axis, 0.0F, 0.0F, HALO, 1.0F, depth, r, g, b, haloA);
-                    strip(consumer, pose, axis, 0.0F, 0.0F, LINE, 1.0F, depth, r, g, b, lineA);
-                }
-                if (maxAcross) {
-                    strip(consumer, pose, axis, 1.0F - HALO, 0.0F, 1.0F, 1.0F, depth, r, g, b, haloA);
-                    strip(consumer, pose, axis, 1.0F - LINE, 0.0F, 1.0F, 1.0F, depth, r, g, b, lineA);
-                }
+            if (top) {
+                rim(consumer, pose, axis, 0.0F, 1.0F - INNER, 1.0F, 1.0F + RIM_HALO, HALO_THICK, rgb, haloA);
+                rim(consumer, pose, axis, 0.0F, 1.0F - INNER, 1.0F, 1.0F + RIM, THICK, rgb, lineA);
+            }
+            if (bottom) {
+                rim(consumer, pose, axis, 0.0F, -RIM_HALO, 1.0F, INNER, HALO_THICK, rgb, haloA);
+                rim(consumer, pose, axis, 0.0F, -RIM, 1.0F, INNER, THICK, rgb, lineA);
+            }
+            if (minAcross) {
+                rim(consumer, pose, axis, -RIM_HALO, 0.0F, INNER, 1.0F, HALO_THICK, rgb, haloA);
+                rim(consumer, pose, axis, -RIM, 0.0F, INNER, 1.0F, THICK, rgb, lineA);
+            }
+            if (maxAcross) {
+                rim(consumer, pose, axis, 1.0F - INNER, 0.0F, 1.0F + RIM_HALO, 1.0F, HALO_THICK, rgb, haloA);
+                rim(consumer, pose, axis, 1.0F - INNER, 0.0F, 1.0F + RIM, 1.0F, THICK, rgb, lineA);
             }
         }
     }
@@ -160,9 +170,67 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
         return alpha;
     }
 
-    private static void strip(VertexConsumer consumer, PoseStack.Pose pose, Direction.Axis axis,
-                              float u0, float v0, float u1, float v1, float depth, int r, int g, int b, int a) {
-        fillFace(consumer, pose, axis, u0, v0, u1, v1, depth, 0.0F, 0.0F, 1.0F, 1.0F, r, g, b, a);
+    /** Outline stays readable; interior pulse can dip to ~0.19 and would hide a rim. */
+    private static float outlineGlow(int decay, float time, int y, int across) {
+        if (decay >= 3) {
+            float phase = (time + across * 0.7F) % 7.0F;
+            return phase < 2.0F ? 1.0F : 0.55F;
+        }
+        float wave = 0.5F + 0.5F * Mth.sin(time * 0.16F - y * 0.65F - across * 0.25F);
+        return 0.82F + 0.18F * wave;
+    }
+
+    /**
+     * Raise value until the strongest channel hits 255, keeping hue. Does not mix toward white,
+     * so yellow stays yellow and blue stays blue.
+     */
+    private static int[] brighten(int rgb) {
+        int r = rgb >> 16 & 0xFF;
+        int g = rgb >> 8 & 0xFF;
+        int b = rgb & 0xFF;
+        int max = Math.max(r, Math.max(g, b));
+        if (max > 0 && max < 255) {
+            float scale = 255.0F / max;
+            r = Math.min(255, Math.round(r * scale));
+            g = Math.min(255, Math.round(g * scale));
+            b = Math.min(255, Math.round(b * scale));
+        }
+        return new int[]{r, g, b};
+    }
+
+    private static void rim(VertexConsumer consumer, PoseStack.Pose pose, Direction.Axis axis,
+                            float a0, float u0, float a1, float u1, float halfThick, int[] rgb, int a) {
+        box(consumer, pose, axis, a0, u0, a1, u1, 0.5F - halfThick, 0.5F + halfThick, rgb[0], rgb[1], rgb[2], a);
+    }
+
+    private static void box(VertexConsumer consumer, PoseStack.Pose pose, Direction.Axis axis,
+                            float a0, float u0, float a1, float u1, float d0, float d1,
+                            int r, int g, int b, int a) {
+        quad(consumer, pose, axis, a0, u0, d0, a1, u0, d0, a1, u1, d0, a0, u1, d0, r, g, b, a);
+        quad(consumer, pose, axis, a0, u0, d1, a0, u1, d1, a1, u1, d1, a1, u0, d1, r, g, b, a);
+        quad(consumer, pose, axis, a0, u0, d0, a0, u0, d1, a1, u0, d1, a1, u0, d0, r, g, b, a);
+        quad(consumer, pose, axis, a0, u1, d0, a1, u1, d0, a1, u1, d1, a0, u1, d1, r, g, b, a);
+        quad(consumer, pose, axis, a0, u0, d0, a0, u1, d0, a0, u1, d1, a0, u0, d1, r, g, b, a);
+        quad(consumer, pose, axis, a1, u0, d0, a1, u0, d1, a1, u1, d1, a1, u1, d0, r, g, b, a);
+    }
+
+    private static void quad(VertexConsumer consumer, PoseStack.Pose pose, Direction.Axis axis,
+                             float a0, float u0, float d0, float a1, float u1, float d1,
+                             float a2, float u2, float d2, float a3, float u3, float d3,
+                             int r, int g, int b, int a) {
+        vertexAU(consumer, pose, axis, a0, u0, d0, 0.0F, 1.0F, r, g, b, a);
+        vertexAU(consumer, pose, axis, a1, u1, d1, 1.0F, 1.0F, r, g, b, a);
+        vertexAU(consumer, pose, axis, a2, u2, d2, 1.0F, 0.0F, r, g, b, a);
+        vertexAU(consumer, pose, axis, a3, u3, d3, 0.0F, 0.0F, r, g, b, a);
+    }
+
+    private static void vertexAU(VertexConsumer consumer, PoseStack.Pose pose, Direction.Axis axis,
+                                 float across, float up, float depth, float u, float v, int r, int g, int b, int a) {
+        if (axis == Direction.Axis.X) {
+            vertex(consumer, pose, depth, up, across, u, v, r, g, b, a, 1, 0, 0);
+        } else {
+            vertex(consumer, pose, across, up, depth, u, v, r, g, b, a, 0, 0, 1);
+        }
     }
 
     private static void fillFace(VertexConsumer consumer, PoseStack.Pose pose, Direction.Axis axis,
