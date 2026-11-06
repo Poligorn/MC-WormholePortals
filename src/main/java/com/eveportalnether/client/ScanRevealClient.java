@@ -1,10 +1,12 @@
 package com.eveportalnether.client;
 
 import com.eveportalnether.EvePortalNether;
+import com.eveportalnether.compat.immersiveportals.ImmersivePortalsClient;
 import com.eveportalnether.compat.immersiveportals.ImmersivePortalsHook;
 import com.eveportalnether.network.ScanRevealPayload;
 import com.eveportalnether.scan.ScanRevealIris;
 import com.eveportalnether.world.PortalShape;
+import com.eveportalnether.world.WormholeAmbient;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
@@ -14,11 +16,14 @@ import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
  * Local 60s through-view gate. Only the scanning client receives {@link ScanRevealPayload},
  * so other players keep drawing the vortex. The iris never opens unless a tagged IP portal
  * is present and dest sections are compiled, so a missing or unmeshed destination cannot
- * expose the local world.
+ * expose the local world. Age is counted in client ticks, not dimension gameTime, so
+ * walking through the wormhole cannot stall or skip the 60s / 2s close.
  */
 public final class ScanRevealClient {
     private static ScanRevealPayload active;
-    private static long expireAt = -1L;
+    private static int age;
+    private static int duration;
+    private static int entityWait;
     private static long readyTick = Long.MIN_VALUE;
     private static boolean readyCached;
     private static boolean waitLogged;
@@ -34,7 +39,9 @@ public final class ScanRevealClient {
             return;
         }
         active = payload;
-        expireAt = minecraft.level.getGameTime() + payload.durationTicks();
+        age = 0;
+        duration = payload.durationTicks();
+        entityWait = 0;
         IRIS.reset();
         readyTick = Long.MIN_VALUE;
         readyCached = false;
@@ -46,15 +53,24 @@ public final class ScanRevealClient {
 
     public static void tick() {
         Minecraft minecraft = Minecraft.getInstance();
-        if (active == null || minecraft.level == null) {
+        if (active == null || minecraft.level == null || minecraft.isPaused()) {
             return;
         }
-        long now = minecraft.level.getGameTime();
-        if (now >= expireAt) {
+        age++;
+        if (age >= duration) {
             clear();
             return;
         }
-        if (!waitLogged && IRIS.clockStart() < 0L && now + active.durationTicks() - expireAt >= 20L) {
+        if (ImmersivePortalsHook.available()) {
+            BlockPos origin = windowOrigin(minecraft.level, active);
+            if (ImmersivePortalsClient.isDestinationCenterReady(
+                    minecraft.level, origin, active.axis(), active.width(), active.height())) {
+                entityWait++;
+            } else {
+                entityWait = 0;
+            }
+        }
+        if (!waitLogged && IRIS.clockStart() < 0L && age >= 20) {
             waitLogged = true;
             EvePortalNether.LOGGER.warn(
                     "Scan reveal is active but the destination through-view is not ready yet; vortex stays opaque");
@@ -70,7 +86,7 @@ public final class ScanRevealClient {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_LEVEL) {
             return;
         }
-        if (ImmersivePortalsHook.isNestedPortalRender()) {
+        if (!ImmersivePortalsHook.available() || ImmersivePortalsClient.isNestedPortalRender()) {
             return;
         }
         ScanRevealPayload payload = active;
@@ -83,7 +99,7 @@ public final class ScanRevealClient {
         if (!isRevealing(level, origin)) {
             return;
         }
-        if (!ImmersivePortalsHook.hasRevealPortal(level, origin, payload.axis(), payload.width(), payload.height())) {
+        if (!ImmersivePortalsClient.hasRevealPortal(level, origin, payload.axis(), payload.width(), payload.height())) {
             return;
         }
         // Dest sections compile during IP's pass, which is after BER. Recheck before overlay.
@@ -96,7 +112,9 @@ public final class ScanRevealClient {
 
     public static void clear() {
         active = null;
-        expireAt = -1L;
+        age = 0;
+        duration = 0;
+        entityWait = 0;
         readyTick = Long.MIN_VALUE;
         readyCached = false;
         waitLogged = false;
@@ -105,10 +123,10 @@ public final class ScanRevealClient {
 
     public static boolean isRevealing(Level level, BlockPos pos) {
         ScanRevealPayload payload = active;
-        if (payload == null || level == null || payload.isClear()) {
+        if (payload == null || level == null || payload.isClear() || duration <= 0) {
             return false;
         }
-        if (level.getGameTime() >= expireAt) {
+        if (age >= duration) {
             clear();
             return false;
         }
@@ -126,10 +144,10 @@ public final class ScanRevealClient {
     public static float irisProgress(Level level, BlockPos pos, float partialTick) {
         boolean revealing = isRevealing(level, pos);
         boolean ready = revealing && destinationReady(level);
-        if (level == null) {
+        if (level == null || duration <= 0) {
             return 0.0F;
         }
-        return IRIS.sample(revealing, ready, level.getGameTime() + partialTick, expireAt);
+        return IRIS.sample(revealing, ready, age + partialTick, duration);
     }
 
     private static boolean destinationReady(Level level) {
@@ -140,11 +158,15 @@ public final class ScanRevealClient {
         if (payload == null) {
             return false;
         }
-        long tick = level.getGameTime();
+        long tick = age;
         if (tick != readyTick) {
             readyTick = tick;
-            readyCached = ImmersivePortalsHook.isDestinationViewReady(
-                    level, windowOrigin(level, payload), payload.axis(), payload.width(), payload.height());
+            BlockPos origin = windowOrigin(level, payload);
+            boolean strict = ImmersivePortalsClient.isDestinationViewReady(
+                    level, origin, payload.axis(), payload.width(), payload.height());
+            boolean center = strict || ImmersivePortalsClient.isDestinationCenterReady(
+                    level, origin, payload.axis(), payload.width(), payload.height());
+            readyCached = strict || (center && entityWait >= WormholeAmbient.DEST_CENTER_FALLBACK_TICKS);
         }
         return readyCached;
     }

@@ -8,6 +8,7 @@ import com.eveportalnether.scan.ScanReveal;
 import com.eveportalnether.scan.ScanRevealIris;
 import com.eveportalnether.world.PortalShape;
 import com.eveportalnether.world.PortalTier;
+import com.eveportalnether.world.WormholeAmbient;
 import com.eveportalnether.world.WormholeStyle;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -187,6 +188,23 @@ public final class PortalSizeTests {
             helper.fail("non-scanner / other portal stays opaque");
             return;
         }
+        ScanRevealIris closing = new ScanRevealIris();
+        closing.sample(true, true, 0L, expire);
+        float open = closing.sample(true, true, expire - ScanReveal.TRANSITION_TICKS, expire);
+        float midClose = closing.sample(true, true, expire - ScanReveal.TRANSITION_TICKS / 2, expire);
+        float almost = closing.sample(true, true, expire - 1L, expire);
+        if (open < 0.99F) {
+            helper.fail("2s close must start at fully open, got " + open);
+            return;
+        }
+        if (Math.abs(midClose - 0.5F) > 0.05F) {
+            helper.fail("2s close midpoint should be ~0.5, got " + midClose);
+            return;
+        }
+        if (almost > 0.05F) {
+            helper.fail("2s close must reach opaque at the last tick, got " + almost);
+            return;
+        }
         helper.succeed();
     }
 
@@ -214,6 +232,39 @@ public final class PortalSizeTests {
         }
         if (!ScanRevealIris.drawVortexForDimension(Level.NETHER, null, true)) {
             helper.fail("no viewer (menu) keeps the vortex");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void portalHumHasOneLoopHost(GameTestHelper helper) {
+        if (!WormholeAmbient.isLoopHost(false, false)) {
+            helper.fail("min-corner interior must host the looping drone");
+            return;
+        }
+        if (WormholeAmbient.isLoopHost(true, false) || WormholeAmbient.isLoopHost(false, true)) {
+            helper.fail("only one tile per window may host the drone");
+            return;
+        }
+        if (WormholeAmbient.LOOP_VOLUME < 0.2F || WormholeAmbient.LOOP_VOLUME > 0.8F) {
+            helper.fail("loop volume " + WormholeAmbient.LOOP_VOLUME + " is inaudible or blasting");
+            return;
+        }
+        assertEq(helper, WormholeAmbient.DEST_CENTER_FALLBACK_TICKS, 100, "dest-center iris fallback ticks");
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void massiveStandPosIsInterior(GameTestHelper helper) {
+        BlockPos origin = new BlockPos(0, 64, 0);
+        BlockPos stand = PortalShape.standPos(origin, Direction.Axis.Z, 50, 50);
+        if (PortalShape.isFrame(stand.getX() - origin.getX(), stand.getY() - origin.getY(), 50, 50)) {
+            helper.fail("50x50 stand column must be interior, not frame");
+            return;
+        }
+        if (!PortalShape.contains(origin, Direction.Axis.Z, 50, 50, stand)) {
+            helper.fail("50x50 stand must stay inside the rectangle");
             return;
         }
         helper.succeed();

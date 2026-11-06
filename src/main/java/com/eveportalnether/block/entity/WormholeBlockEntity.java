@@ -6,12 +6,25 @@ import com.eveportalnether.world.data.PortalPair;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientGamePacketListener;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
+import org.jetbrains.annotations.Nullable;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 
+import java.util.function.Consumer;
+
 public class WormholeBlockEntity extends BlockEntity {
+    /**
+     * Client-only ambient hook. Assigned from {@code EvePortalNetherClient}; dedicated
+     * servers never invoke {@link #clientTick} so they never load the sound class.
+     */
+    public static Consumer<WormholeBlockEntity> clientAmbient = entity -> {
+    };
+
     private int ticksRemaining = 6000;
     private int jumpsRemaining = 10;
     private boolean isCenter = false;
@@ -67,6 +80,23 @@ public class WormholeBlockEntity extends BlockEntity {
         if (tag.contains("IsCenter")) {
             this.isCenter = tag.getBoolean("IsCenter");
         }
+    }
+
+    @Override
+    public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
+        CompoundTag tag = super.getUpdateTag(registries);
+        saveAdditional(tag, registries);
+        return tag;
+    }
+
+    @Override
+    @Nullable
+    public Packet<ClientGamePacketListener> getUpdatePacket() {
+        return ClientboundBlockEntityDataPacket.create(this);
+    }
+
+    public static void clientTick(Level level, BlockPos pos, BlockState state, WormholeBlockEntity blockEntity) {
+        clientAmbient.accept(blockEntity);
     }
 
     public static void tick(Level level, BlockPos pos, BlockState state, WormholeBlockEntity blockEntity) {
