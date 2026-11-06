@@ -5,11 +5,14 @@ import com.eveportalnether.EvePortalNether;
 import com.eveportalnether.block.WormholeBlock;
 import com.eveportalnether.registry.ModBlocks;
 import com.eveportalnether.scan.ScanReveal;
+import com.eveportalnether.scan.ScanRevealIris;
 import com.eveportalnether.world.PortalShape;
 import com.eveportalnether.world.PortalTier;
 import com.eveportalnether.world.WormholeStyle;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.world.level.EmptyBlockGetter;
@@ -147,6 +150,76 @@ public final class PortalSizeTests {
         float mid = ScanReveal.ease(0.5F);
         if (mid < 0.49F || mid > 0.51F) {
             helper.fail("ease-in-out midpoint should be ~0.5, got " + mid);
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void scanRevealIrisDoesNotRewindOnDestFlicker(GameTestHelper helper) {
+        ScanRevealIris iris = new ScanRevealIris();
+        long expire = ScanReveal.DURATION_TICKS;
+        if (iris.sample(true, false, 0L, expire) != 0.0F) {
+            helper.fail("iris stays closed until destination is ready");
+            return;
+        }
+        if (iris.sample(true, true, 1L, expire) != 0.0F || iris.clockStart() != 1L) {
+            helper.fail("iris clock must start at the first ready tick (ease 0 at age 0)");
+            return;
+        }
+        if (iris.sample(true, false, 2L, expire) != 0.0F) {
+            helper.fail("missing destination must cover with vortex");
+            return;
+        }
+        float resumed = iris.sample(true, true, 21L, expire);
+        float fresh = new ScanRevealIris().sample(true, true, 21L, expire);
+        if (resumed <= fresh + 0.05F) {
+            helper.fail("dest flicker must not rewind the 2s ease; resumed=" + resumed + " fresh=" + fresh);
+            return;
+        }
+        if (iris.sample(false, true, 22L, expire) != 0.0F) {
+            helper.fail("non-scanner / other portal stays opaque");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void destDimensionVortexWouldOccludeThroughView(GameTestHelper helper) {
+        if (!ScanRevealIris.drawVortexForDimension(Level.OVERWORLD, Level.OVERWORLD)) {
+            helper.fail("home overworld must still draw the vortex");
+            return;
+        }
+        if (ScanRevealIris.drawVortexForDimension(Level.NETHER, Level.OVERWORLD)) {
+            helper.fail("nether rendered for an overworld viewer must not draw the dest vortex");
+            return;
+        }
+        if (ScanRevealIris.drawVortexForDimension(Level.OVERWORLD, Level.NETHER)) {
+            helper.fail("overworld rendered for a nether viewer must not draw the dest vortex");
+            return;
+        }
+        if (!ScanRevealIris.drawVortexForDimension(Level.NETHER, null)) {
+            helper.fail("no viewer (menu) keeps the vortex");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void windowBoxCoversBothAxes(GameTestHelper helper) {
+        BlockPos origin = new BlockPos(50, 72, 18);
+        AABB zBox = PortalShape.windowBox(origin, Direction.Axis.Z, 7, 8);
+        if (!zBox.intersects(new AABB(origin.offset(3, 4, 0)))) {
+            helper.fail("Z window box must cover the interior");
+            return;
+        }
+        if (zBox.intersects(new AABB(origin.offset(0, 0, 2)))) {
+            helper.fail("Z window box must stay on the portal plane");
+            return;
+        }
+        AABB xBox = PortalShape.windowBox(origin, Direction.Axis.X, 7, 8);
+        if (!xBox.intersects(new AABB(origin.offset(0, 4, 3)))) {
+            helper.fail("X window box must cover the interior");
             return;
         }
         helper.succeed();

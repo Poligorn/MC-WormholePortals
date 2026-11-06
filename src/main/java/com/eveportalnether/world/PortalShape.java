@@ -10,6 +10,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.Fluids;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 public final class PortalShape {
@@ -94,6 +95,12 @@ public final class PortalShape {
         double across = width / 2.0;
         double up = height / 2.0;
         return axis == Direction.Axis.X ? corner.add(0.5, up, across) : corner.add(across, up, 0.5);
+    }
+
+    /** Inclusive block rectangle of the portal, slightly inflated for entity queries. */
+    public static AABB windowBox(BlockPos origin, Direction.Axis axis, int width, int height) {
+        BlockPos far = offset(origin, Math.max(0, width - 1), Math.max(0, height - 1), axis);
+        return new AABB(origin).minmax(new AABB(far)).inflate(0.25);
     }
 
     public static boolean isVolumeReplaceable(Level level, BlockPos origin, Direction.Axis axis, int width, int height) {

@@ -1,8 +1,9 @@
 package com.eveportalnether.client;
 
+import com.eveportalnether.EvePortalNether;
 import com.eveportalnether.compat.immersiveportals.ImmersivePortalsHook;
 import com.eveportalnether.network.ScanRevealPayload;
-import com.eveportalnether.scan.ScanReveal;
+import com.eveportalnether.scan.ScanRevealIris;
 import com.eveportalnether.world.PortalShape;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -16,9 +17,10 @@ import net.minecraft.world.level.Level;
 public final class ScanRevealClient {
     private static ScanRevealPayload active;
     private static long expireAt = -1L;
-    private static long irisClockStart = -1L;
     private static long readyTick = Long.MIN_VALUE;
     private static boolean readyCached;
+    private static boolean waitLogged;
+    private static final ScanRevealIris IRIS = new ScanRevealIris();
 
     private ScanRevealClient() {
     }
@@ -31,7 +33,13 @@ public final class ScanRevealClient {
         }
         active = payload;
         expireAt = minecraft.level.getGameTime() + payload.durationTicks();
-        irisClockStart = -1L;
+        IRIS.reset();
+        readyTick = Long.MIN_VALUE;
+        readyCached = false;
+        waitLogged = false;
+        EvePortalNether.LOGGER.info("Scan reveal granted for {} ticks at {} / {}",
+                payload.durationTicks(), payload.overworldOrigin().toShortString(),
+                payload.netherOrigin().toShortString());
     }
 
     public static void tick() {
@@ -39,17 +47,25 @@ public final class ScanRevealClient {
         if (active == null || minecraft.level == null) {
             return;
         }
-        if (minecraft.level.getGameTime() >= expireAt) {
+        long now = minecraft.level.getGameTime();
+        if (now >= expireAt) {
             clear();
+            return;
+        }
+        if (!waitLogged && IRIS.clockStart() < 0L && now + active.durationTicks() - expireAt >= 20L) {
+            waitLogged = true;
+            EvePortalNether.LOGGER.warn(
+                    "Scan reveal is active but no tagged Immersive Portals entity is visible yet; vortex stays opaque");
         }
     }
 
     public static void clear() {
         active = null;
         expireAt = -1L;
-        irisClockStart = -1L;
         readyTick = Long.MIN_VALUE;
         readyCached = false;
+        waitLogged = false;
+        IRIS.reset();
     }
 
     public static boolean isRevealing(Level level, BlockPos pos) {
@@ -61,8 +77,7 @@ public final class ScanRevealClient {
             clear();
             return false;
         }
-        BlockPos origin = level.dimension() == Level.NETHER ? payload.netherOrigin() : payload.overworldOrigin();
-        return PortalShape.contains(origin, payload.axis(), payload.width(), payload.height(), pos);
+        return PortalShape.contains(windowOrigin(level, payload), payload.axis(), payload.width(), payload.height(), pos);
     }
 
     /**
@@ -70,35 +85,32 @@ public final class ScanRevealClient {
      * Stays at 0 when Immersive Portals is absent or the reveal entity is not in the level.
      */
     public static float irisProgress(Level level, BlockPos pos) {
-        if (!isRevealing(level, pos) || !destinationReady(level, pos)) {
-            irisClockStart = -1L;
+        boolean revealing = isRevealing(level, pos);
+        boolean ready = revealing && destinationReady(level);
+        if (level == null) {
             return 0.0F;
         }
-        long now = level.getGameTime();
-        if (irisClockStart < 0L) {
-            irisClockStart = now;
-        }
-        int trans = ScanReveal.TRANSITION_TICKS;
-        long remaining = expireAt - now;
-        if (remaining <= trans) {
-            return ScanReveal.ease(remaining / (float) trans);
-        }
-        long openAge = now - irisClockStart;
-        if (openAge < trans) {
-            return ScanReveal.ease(openAge / (float) trans);
-        }
-        return 1.0F;
+        return IRIS.sample(revealing, ready, level.getGameTime(), expireAt);
     }
 
-    private static boolean destinationReady(Level level, BlockPos pos) {
+    private static boolean destinationReady(Level level) {
         if (!ImmersivePortalsHook.available()) {
+            return false;
+        }
+        ScanRevealPayload payload = active;
+        if (payload == null) {
             return false;
         }
         long tick = level.getGameTime();
         if (tick != readyTick) {
             readyTick = tick;
-            readyCached = ImmersivePortalsHook.hasRevealPortal(level, pos);
+            readyCached = ImmersivePortalsHook.hasRevealPortal(
+                    level, windowOrigin(level, payload), payload.axis(), payload.width(), payload.height());
         }
         return readyCached;
+    }
+
+    private static BlockPos windowOrigin(Level level, ScanRevealPayload payload) {
+        return level.dimension() == Level.NETHER ? payload.netherOrigin() : payload.overworldOrigin();
     }
 }

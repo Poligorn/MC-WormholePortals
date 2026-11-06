@@ -2,6 +2,7 @@ package com.eveportalnether.compat.immersiveportals;
 
 import com.eveportalnether.world.data.PortalPair;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
@@ -41,10 +42,10 @@ public final class ImmersivePortalsHook {
     }
 
     /**
-     * Client/server: a tagged reveal portal is actually in the level near {@code pos}.
+     * Client/server: a tagged reveal portal is actually in the window.
      * The iris must not punch a hole until this is true, or the local world would show.
      */
-    public static boolean hasRevealPortal(Level level, BlockPos pos) {
-        return available() && ImmersivePortalsCompat.hasTaggedPortalNear(level, pos);
+    public static boolean hasRevealPortal(Level level, BlockPos origin, Direction.Axis axis, int width, int height) {
+        return available() && ImmersivePortalsCompat.hasTaggedPortalInWindow(level, origin, axis, width, height);
     }
 }

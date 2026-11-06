@@ -4,9 +4,11 @@ import com.eveportalnether.EvePortalNether;
 import com.eveportalnether.block.WormholeBlock;
 import com.eveportalnether.block.entity.WormholeBlockEntity;
 import com.eveportalnether.registry.ModBlocks;
+import com.eveportalnether.scan.ScanRevealIris;
 import com.eveportalnether.world.WormholeStyle;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
@@ -23,7 +25,9 @@ import net.minecraft.world.phys.AABB;
  * Window interior: fully opaque portal-tinted pixel vortex (cutout + depth write) so the
  * same-world terrain cannot show through. After a successful scan the scanning client
  * irises the vortex over 2s only when a tagged IP portal is present; other clients keep
- * the vortex. A missing destination never punches a hole.
+ * the vortex. A missing destination never punches a hole. When Immersive Portals is
+ * rendering the destination dimension, this BER is skipped so the dest-side vortex
+ * cannot fill the through-view.
  * <p>
  * Border: a thin fullbright white line (~0.03 block) in the invisible frame ring, plus a
  * short outer halo. The solid line uses {@code entityCutoutNoCull} so clouds cannot punch
@@ -54,9 +58,11 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
         Level level = entity.getLevel();
         BlockPos pos = entity.getBlockPos();
         Direction.Axis axis = state.getValue(WormholeBlock.AXIS);
-        boolean border = isBorder(level, pos, axis);
+        boolean home = isViewerHomeDimension(level);
+        boolean border = home && isBorder(level, pos, axis);
         PoseStack.Pose pose = poseStack.last();
-        float iris = ScanRevealClient.irisProgress(level, pos);
+        // Remote IP world: skip vortex+rim or the dest-side overlay fills the through-view.
+        float iris = home ? ScanRevealClient.irisProgress(level, pos) : 1.0F;
         if (iris < 0.999F) {
             Bounds bounds = portalBounds(level, pos, axis);
             int portalRgb = state.getValue(WormholeBlock.COLOR).tint(state.getValue(WormholeBlock.DECAY));
@@ -188,6 +194,19 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
             vertex(consumer, pose, a1, u1, depth, 1.0F, 1.0F, r, g, b, a, 0, 0, -1);
             vertex(consumer, pose, a1, u0, depth, 1.0F, 0.0F, r, g, b, a, 0, 0, -1);
         }
+    }
+
+    /**
+     * Immersive Portals keeps the player in their origin dimension while rendering
+     * the destination. An opaque vortex in that other {@link Level} would cover the
+     * through-view. Compare dimension keys, not instance identity.
+     */
+    static boolean isViewerHomeDimension(Level rendered) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null) {
+            return ScanRevealIris.drawVortexForDimension(rendered.dimension(), null);
+        }
+        return ScanRevealIris.drawVortexForDimension(rendered.dimension(), minecraft.player.level().dimension());
     }
 
     private static boolean isBorder(Level level, BlockPos pos, Direction.Axis axis) {

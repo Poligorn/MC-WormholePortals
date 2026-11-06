@@ -3,6 +3,7 @@ package com.eveportalnether.compat.immersiveportals;
 import com.eveportalnether.EvePortalNether;
 import com.eveportalnether.world.PortalShape;
 import com.eveportalnether.world.data.PortalPair;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceKey;
@@ -53,6 +54,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class ImmersivePortalsCompat {
     static final String PORTAL_TAG = "eveportalnether:scan_reveal";
 
+    private static final ThreadLocal<Boolean> SPAWNING = ThreadLocal.withInitial(() -> Boolean.FALSE);
     private static final Map<UUID, Spawned> SPAWNED = new ConcurrentHashMap<>();
 
     private ImmersivePortalsCompat() {
@@ -82,6 +84,7 @@ public final class ImmersivePortalsCompat {
         spawned.playerHint = player.getUUID();
         // Register before addFreshEntity so EntityJoinLevelEvent does not treat these as orphans.
         SPAWNED.put(player.getUUID(), spawned);
+        SPAWNING.set(Boolean.TRUE);
         try {
             spawnFaced(overworld, overworldCenter, Level.NETHER, netherCenter, axisW, axisH, innerW, innerH, player, spawned);
             spawnFaced(nether, netherCenter, Level.OVERWORLD, overworldCenter, axisW, axisH, innerW, innerH, player, spawned);
@@ -91,25 +94,50 @@ public final class ImmersivePortalsCompat {
             EvePortalNether.LOGGER.warn("Immersive Portals reveal spawn failed; leaving vortex in place", exception);
             despawnReveal(player.server, player.getUUID());
             return false;
+        } finally {
+            SPAWNING.set(Boolean.FALSE);
         }
         if (spawned.entities.isEmpty()) {
             despawnReveal(player.server, player.getUUID());
             return false;
         }
+        EvePortalNether.LOGGER.info("Spawned {} Immersive Portals reveal entities for {} at {}",
+                spawned.entities.size(), player.getGameProfile().getName(), pair.getOverworldOrigin().toShortString());
         return true;
     }
 
-    static boolean hasTaggedPortalNear(Level level, BlockPos pos) {
-        if (level == null || pos == null) {
+    static boolean hasTaggedPortalInWindow(Level level, BlockPos origin, Direction.Axis axis, int width, int height) {
+        if (level == null || origin == null || axis == null || width <= 0 || height <= 0) {
             return false;
         }
-        AABB box = new AABB(pos).inflate(48.0);
+        AABB box = PortalShape.windowBox(origin, axis, width, height).inflate(1.0);
         for (Portal portal : level.getEntitiesOfClass(Portal.class, box)) {
-            if (PORTAL_TAG.equals(portal.portalTag)) {
+            if (isRevealPortal(portal, origin, axis, width, height, box)) {
                 return true;
             }
         }
+        // IP portals can have a degenerate bounding box until PortalSyncPacket applies
+        // (NULL_BOX at 0,0,0). Spatial queries miss those; walk rendered entities by position.
+        if (level.isClientSide() && level instanceof ClientLevel clientLevel) {
+            for (Entity entity : clientLevel.entitiesForRendering()) {
+                if (entity instanceof Portal portal && isRevealPortal(portal, origin, axis, width, height, box)) {
+                    return true;
+                }
+            }
+        }
         return false;
+    }
+
+    private static boolean isRevealPortal(Portal portal, BlockPos origin, Direction.Axis axis,
+                                          int width, int height, AABB box) {
+        if (!PORTAL_TAG.equals(portal.portalTag)) {
+            return false;
+        }
+        if (PortalShape.contains(origin, axis, width, height, BlockPos.containing(portal.position()))) {
+            return true;
+        }
+        AABB portalBox = portal.getBoundingBox();
+        return portalBox != null && box.intersects(portalBox);
     }
 
     static void despawnReveal(MinecraftServer server, UUID playerId) {
@@ -132,7 +160,7 @@ public final class ImmersivePortalsCompat {
         if (!PORTAL_TAG.equals(portal.portalTag)) {
             return;
         }
-        if (isTracked(portal.getUUID())) {
+        if (Boolean.TRUE.equals(SPAWNING.get()) || isTracked(portal.getUUID())) {
             return;
         }
         event.setCanceled(true);

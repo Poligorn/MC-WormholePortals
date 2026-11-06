@@ -1,5 +1,6 @@
 package com.eveportalnether.scan;
 
+import com.eveportalnether.EvePortalNether;
 import com.eveportalnether.compat.immersiveportals.ImmersivePortalsHook;
 import com.eveportalnether.network.ModNetwork;
 import com.eveportalnether.network.ScanRevealPayload;
@@ -36,12 +37,19 @@ public final class ScanReveal {
 
     public static void start(ServerPlayer player, PortalPair pair) {
         stop(player.server, player.getUUID());
+        if (!ImmersivePortalsHook.available()) {
+            return;
+        }
         if (!ImmersivePortalsHook.spawnReveal(player, pair)) {
+            EvePortalNether.LOGGER.warn("Scan reveal spawn failed for {} at {}; vortex stays opaque",
+                    player.getGameProfile().getName(), pair.getOverworldOrigin().toShortString());
             return;
         }
         long expireAt = player.server.overworld().getGameTime() + DURATION_TICKS;
         SESSIONS.put(player.getUUID(), new Session(pair.getId(), expireAt));
         ModNetwork.sendReveal(player, ScanRevealPayload.of(pair, DURATION_TICKS));
+        EvePortalNether.LOGGER.info("Scan reveal started for {} ({} {}x{}, {} ticks)",
+                player.getGameProfile().getName(), pair.getSignature(), pair.getWidth(), pair.getHeight(), DURATION_TICKS);
     }
 
     public static void tick(MinecraftServer server) {
