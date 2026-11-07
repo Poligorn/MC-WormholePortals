@@ -1,17 +1,19 @@
 package com.eveportalnether.client;
 
+import com.eveportalnether.Config;
 import com.eveportalnether.block.WormholeBlock;
 import com.eveportalnether.block.entity.WormholeBlockEntity;
 import com.eveportalnether.registry.ModBlocks;
+import com.eveportalnether.registry.ModSounds;
 import com.eveportalnether.world.WormholeAmbient;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.AbstractTickableSoundInstance;
 import net.minecraft.client.resources.sounds.SoundInstance;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -23,6 +25,9 @@ import java.util.Map;
 /**
  * One looping nether-portal drone per live window. Stops when the host tile is gone
  * or the player leaves the dimension, so dying/collapse cannot leak the sound.
+ * Distance uses {@link WormholeAmbient#loopGain}, not vanilla {@code PORTAL_AMBIENT}'s
+ * 16-block LINEAR clamp. {@code minecraft.level} is not used as the dimension check:
+ * Immersive Portals can swap it to the dest world while nested-rendering.
  */
 public final class WormholeAmbientSounds {
     private static final Map<BlockPos, Drone> PLAYING = new HashMap<>();
@@ -47,7 +52,10 @@ public final class WormholeAmbientSounds {
             return;
         }
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.level != level || minecraft.getSoundManager() == null) {
+        if (minecraft.getSoundManager() == null || ImmersivePortalsClientAccess.isNestedPortalRender()) {
+            return;
+        }
+        if (!viewerInHostDimension(minecraft, level)) {
             return;
         }
         Drone existing = PLAYING.get(pos);
@@ -68,6 +76,21 @@ public final class WormholeAmbientSounds {
         }
     }
 
+    public static void stopAll() {
+        for (Drone drone : PLAYING.values()) {
+            drone.halt();
+        }
+        PLAYING.clear();
+    }
+
+    private static boolean viewerInHostDimension(Minecraft minecraft, Level host) {
+        Player player = minecraft.player;
+        if (player == null || player.level() == null) {
+            return false;
+        }
+        return WormholeAmbient.sameDimension(host.dimension(), player.level().dimension());
+    }
+
     private static boolean isWindow(Level level, BlockPos pos) {
         BlockState state = level.getBlockState(pos);
         return state.is(ModBlocks.WORMHOLE.get()) && !state.getValue(WormholeBlock.FRAME);
@@ -78,12 +101,12 @@ public final class WormholeAmbientSounds {
         private final BlockPos pos;
 
         private Drone(Level level, BlockPos pos) {
-            super(SoundEvents.PORTAL_AMBIENT, SoundSource.BLOCKS, RandomSource.create());
+            super(ModSounds.PORTAL_HUM.get(), SoundSource.BLOCKS, RandomSource.create());
             this.level = level;
             this.pos = pos.immutable();
             this.looping = true;
             this.delay = 0;
-            this.volume = WormholeAmbient.LOOP_VOLUME;
+            this.volume = 0.0F;
             this.pitch = 0.85F;
             this.relative = false;
             this.attenuation = SoundInstance.Attenuation.LINEAR;
@@ -92,10 +115,22 @@ public final class WormholeAmbientSounds {
             this.z = pos.getZ() + 0.5;
         }
 
+        void halt() {
+            stop();
+        }
+
+        @Override
+        public boolean canStartSilent() {
+            return true;
+        }
+
         @Override
         public void tick() {
             Minecraft minecraft = Minecraft.getInstance();
-            if (minecraft.level != level) {
+            if (ImmersivePortalsClientAccess.isNestedPortalRender()) {
+                return;
+            }
+            if (!viewerInHostDimension(minecraft, level)) {
                 stop();
                 return;
             }
@@ -103,7 +138,16 @@ public final class WormholeAmbientSounds {
             Block block = state.getBlock();
             if (block != ModBlocks.WORMHOLE.get() || state.getValue(WormholeBlock.FRAME)) {
                 stop();
+                return;
             }
+            Player player = minecraft.player;
+            double dx = player.getX() - x;
+            double dy = player.getEyeY() - y;
+            double dz = player.getZ() - z;
+            double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            int hear = WormholeAmbient.effectiveHearDistance(
+                    Config.AMBIENT_HEAR_DISTANCE.get(), minecraft.options.renderDistance().get());
+            this.volume = WormholeAmbient.LOOP_VOLUME * WormholeAmbient.loopGain(distance, hear);
         }
     }
 }

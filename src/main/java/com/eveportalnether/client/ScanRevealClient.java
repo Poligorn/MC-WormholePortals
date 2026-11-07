@@ -1,7 +1,6 @@
 package com.eveportalnether.client;
 
 import com.eveportalnether.EvePortalNether;
-import com.eveportalnether.compat.immersiveportals.ImmersivePortalsClient;
 import com.eveportalnether.compat.immersiveportals.ImmersivePortalsHook;
 import com.eveportalnether.network.ScanRevealPayload;
 import com.eveportalnether.scan.ScanRevealIris;
@@ -63,7 +62,7 @@ public final class ScanRevealClient {
         }
         if (ImmersivePortalsHook.available()) {
             BlockPos origin = windowOrigin(minecraft.level, active);
-            if (ImmersivePortalsClient.isDestinationCenterReady(
+            if (ImmersivePortalsClientAccess.isDestinationCenterReady(
                     minecraft.level, origin, active.axis(), active.width(), active.height())) {
                 entityWait++;
             } else {
@@ -86,7 +85,7 @@ public final class ScanRevealClient {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_LEVEL) {
             return;
         }
-        if (!ImmersivePortalsHook.available() || ImmersivePortalsClient.isNestedPortalRender()) {
+        if (ImmersivePortalsClientAccess.isNestedPortalRender()) {
             return;
         }
         ScanRevealPayload payload = active;
@@ -99,7 +98,7 @@ public final class ScanRevealClient {
         if (!isRevealing(level, origin)) {
             return;
         }
-        if (!ImmersivePortalsClient.hasRevealPortal(level, origin, payload.axis(), payload.width(), payload.height())) {
+        if (!ImmersivePortalsClientAccess.hasRevealPortal(level, origin, payload.axis(), payload.width(), payload.height())) {
             return;
         }
         // Dest sections compile during IP's pass, which is after BER. Recheck before overlay.
@@ -162,9 +161,9 @@ public final class ScanRevealClient {
         if (tick != readyTick) {
             readyTick = tick;
             BlockPos origin = windowOrigin(level, payload);
-            boolean strict = ImmersivePortalsClient.isDestinationViewReady(
+            boolean strict = ImmersivePortalsClientAccess.isDestinationViewReady(
                     level, origin, payload.axis(), payload.width(), payload.height());
-            boolean center = strict || ImmersivePortalsClient.isDestinationCenterReady(
+            boolean center = strict || ImmersivePortalsClientAccess.isDestinationCenterReady(
                     level, origin, payload.axis(), payload.width(), payload.height());
             readyCached = strict || (center && entityWait >= WormholeAmbient.DEST_CENTER_FALLBACK_TICKS);
         }

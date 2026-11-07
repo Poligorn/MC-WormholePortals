@@ -71,6 +71,20 @@
       { "name": "minecraft:entity.lightning_bolt.thunder", "type": "event" }
     ]
   },
+  "portal.hum": {
+    "subtitle": "subtitles.eveportalnether.portal.hum",
+    "sounds": [
+      {
+        "name": "minecraft:block/portal/portal",
+        "type": "file",
+        "volume": 1.0,
+        "pitch": 1.0,
+        "attenuation_distance": 256,
+        "stream": false,
+        "preload": true
+      }
+    ]
+  },
   "portal.crackle": {
     "subtitle": "subtitles.eveportalnether.portal.crackle",
     "sounds": [

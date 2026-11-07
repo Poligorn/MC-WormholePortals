@@ -102,5 +102,6 @@ public class EvePortalNetherClient {
         ScanPanel.clear();
         TransitScreen.clear();
         ScanRevealClient.clear();
+        WormholeAmbientSounds.stopAll();
     }
 }

@@ -63,7 +63,9 @@ public final class ImmersivePortalsClient {
             if (destWorld == null) {
                 return false;
             }
-            LevelRenderer renderer = ClientWorldLoader.WORLD_RENDERER_MAP.get(destDim);
+            // Public API creates the dest renderer if IP has the world but has not
+            // inserted it into WORLD_RENDERER_MAP yet. MAP.get alone left iris at 0.
+            LevelRenderer renderer = ClientWorldLoader.getWorldRenderer(destDim);
             if (renderer == null) {
                 return false;
             }

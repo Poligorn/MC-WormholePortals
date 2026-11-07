@@ -14,6 +14,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -113,8 +114,14 @@ public final class DetectorDecryption {
             session.elapsed++;
             if (session.elapsed % 4 == 0) {
                 level.sendParticles(ParticleTypes.ENCHANT, player.getX(), player.getY() + 1.2, player.getZ(), 6, 0.4, 0.5, 0.4, 0.4);
-                level.sendParticles(ParticleTypes.PORTAL, session.pos.getX() + 0.5, session.pos.getY() + 0.5, session.pos.getZ() + 0.5,
-                        0, player.getX() - session.pos.getX() - 0.5, player.getEyeY() - session.pos.getY() - 0.5, player.getZ() - session.pos.getZ() - 0.5, 1.0);
+                Vec3 center = DetectorScanFx.moteOrigin(pair, level.dimension());
+                double radius = DetectorScanFx.moteRadius(pair);
+                double alongX = DetectorScanFx.alongX(pair) ? 1.0 : 0.0;
+                for (int i = 0; i < 3; i++) {
+                    double angle = (session.elapsed * 0.11) + i * (Math.PI * 2.0 / 3.0);
+                    level.sendParticles(DetectorScanFx.portalMote(pair), center.x, center.y, center.z,
+                            0, radius, angle, alongX, 1.0);
+                }
             }
             int total = session.order.size();
             int revealed = Math.min(total, session.elapsed * total / Math.max(1, session.duration));

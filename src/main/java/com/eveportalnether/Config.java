@@ -1,5 +1,6 @@
 package com.eveportalnether;
 
+import com.eveportalnether.world.WormholeAmbient;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
 public class Config {
@@ -172,6 +173,16 @@ public class Config {
     public static final ModConfigSpec.IntValue RADAR_DURATION_TICKS = BUILDER
             .comment("Radar runtime added per successful charge (6000 = 5 minutes)")
             .defineInRange("radarDurationTicks", 6000, 1, Integer.MAX_VALUE);
+
+    static {
+        BUILDER.pop();
+        BUILDER.push("audio");
+    }
+
+    public static final ModConfigSpec.IntValue AMBIENT_HEAR_DISTANCE = BUILDER
+            .comment("How far the looping wormhole drone can be heard, in blocks. Vanilla block.portal.ambient is silent at 16 because OpenAL LINEAR uses that event's attenuation_distance; this mod's portal.hum file does not inherit that 16. Loaded-chunk tick range is min(this, renderDistance*16)")
+            .defineInRange("ambientHearDistance", WormholeAmbient.HEAR_DISTANCE_DEFAULT,
+                    WormholeAmbient.HEAR_DISTANCE_MIN, WormholeAmbient.HEAR_DISTANCE_MAX);
 
     static {
         BUILDER.pop();

@@ -3,6 +3,8 @@ package com.eveportalnether.gametest;
 import com.eveportalnether.Config;
 import com.eveportalnether.EvePortalNether;
 import com.eveportalnether.block.WormholeBlock;
+import com.eveportalnether.item.DetectorScanFx;
+import com.eveportalnether.particle.SpiralParticleOptions;
 import com.eveportalnether.registry.ModBlocks;
 import com.eveportalnether.scan.ScanReveal;
 import com.eveportalnether.scan.ScanRevealIris;
@@ -10,10 +12,16 @@ import com.eveportalnether.world.PortalShape;
 import com.eveportalnether.world.PortalTier;
 import com.eveportalnether.world.WormholeAmbient;
 import com.eveportalnether.world.WormholeStyle;
+import com.eveportalnether.world.data.PortalPair;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
+
+import java.util.UUID;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.world.level.EmptyBlockGetter;
@@ -252,6 +260,79 @@ public final class PortalSizeTests {
             return;
         }
         assertEq(helper, WormholeAmbient.DEST_CENTER_FALLBACK_TICKS, 100, "dest-center iris fallback ticks");
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void portalHumHearRangeIs128NotVanilla16(GameTestHelper helper) {
+        assertEq(helper, WormholeAmbient.HEAR_DISTANCE_DEFAULT, 128, "default hear distance");
+        assertEq(helper, WormholeAmbient.HEAR_DISTANCE_MIN, 100, "hear min");
+        assertEq(helper, WormholeAmbient.HEAR_DISTANCE_MAX, 150, "hear max");
+        if (WormholeAmbient.SOUND_ATTENUATION_DISTANCE <= WormholeAmbient.HEAR_DISTANCE_MAX) {
+            helper.fail("file attenuation " + WormholeAmbient.SOUND_ATTENUATION_DISTANCE
+                    + " must stay above the 150-block config max so LINEAR cannot clamp at 16");
+            return;
+        }
+        if (WormholeAmbient.loopGain(0.0, 128) != 1.0F || WormholeAmbient.loopGain(8.0, 128) != 1.0F) {
+            helper.fail("near field must stay full volume");
+            return;
+        }
+        float atOldClamp = WormholeAmbient.loopGain(16.0, 128);
+        if (atOldClamp < 0.85F) {
+            helper.fail("16 blocks is vanilla PORTAL_AMBIENT silence; gain must stay high, got " + atOldClamp);
+            return;
+        }
+        float mid = WormholeAmbient.loopGain(64.0, 128);
+        float far = WormholeAmbient.loopGain(96.0, 128);
+        if (mid <= far || far <= 0.0F) {
+            helper.fail("falloff must decrease smoothly toward 128, mid=" + mid + " far=" + far);
+            return;
+        }
+        if (WormholeAmbient.loopGain(128.0, 128) != 0.0F || WormholeAmbient.loopGain(200.0, 128) != 0.0F) {
+            helper.fail("gain must be 0 at and beyond hear distance");
+            return;
+        }
+        assertEq(helper, WormholeAmbient.effectiveHearDistance(128, 12), 128, "rd 12 keeps 128");
+        assertEq(helper, WormholeAmbient.effectiveHearDistance(150, 6), 96, "rd 6 loads only 96");
+        if (WormholeAmbient.sameDimension(Level.OVERWORLD, Level.NETHER)) {
+            helper.fail("overworld drone must not follow a nether viewer");
+            return;
+        }
+        if (!WormholeAmbient.sameDimension(Level.OVERWORLD, Level.OVERWORLD)) {
+            helper.fail("same dimension must match");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void detectorScanFxDoesNotUseNetherPortalSprite(GameTestHelper helper) {
+        PortalPair pair = new PortalPair(UUID.randomUUID(), new BlockPos(10, 64, 2), new BlockPos(4, 40, 4),
+                Direction.Axis.Z, 8, 10, PortalTier.STANDARD, 6000, 8);
+        ParticleOptions mote = DetectorScanFx.portalMote(pair);
+        if (!(mote instanceof SpiralParticleOptions spiral)) {
+            helper.fail("scanner RMB FX must use wormhole spiral motes, not " + mote);
+            return;
+        }
+        if (spiral.getType() == ParticleTypes.PORTAL) {
+            helper.fail("scanner RMB must not spawn vanilla nether-portal particles on the vortex");
+            return;
+        }
+        Vec3 origin = DetectorScanFx.moteOrigin(pair, Level.OVERWORLD);
+        Vec3 expected = PortalShape.windowCenter(pair.getOverworldOrigin(), pair.getAxis(), pair.getWidth(), pair.getHeight());
+        if (origin.distanceToSqr(expected) > 0.001) {
+            helper.fail("scan motes must start at the window centre, not the clicked frame: " + origin);
+            return;
+        }
+        Vec3 frame = Vec3.atCenterOf(pair.getOverworldOrigin());
+        if (origin.distanceToSqr(frame) < 0.25) {
+            helper.fail("window centre must not collapse to the frame origin the detector clicked");
+            return;
+        }
+        if (DetectorScanFx.alongX(pair)) {
+            helper.fail("Z portal spiral should orbit in the X/Y plane");
+            return;
+        }
         helper.succeed();
     }
 

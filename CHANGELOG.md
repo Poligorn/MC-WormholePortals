@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.0-alpha.2
+
+Not a stable release. Do not merge, tag, or publish.
+
+- **Hum hear range.** Vanilla `block.portal.ambient` is a file with `attenuation_distance` 16, so OpenAL LINEAR gain is 0 at 16 blocks (`max(volume,1)*16`). The loop now plays `portal.hum` (raw `minecraft:block/portal/portal`, attenuation 256) and applies a quadratic falloff: full at ≤8, silent at the configured hear distance (default **128**, clamped 100–150, and `min(that, renderDistance*16)` because block entities only tick in loaded chunks). Spatial panning stays on. One host per window; stop on collapse / other dimension / logout. Nested IP world-switch does not start dest drones or kill the origin loop.
+- **Scan through-view.** `ScanRevealClient` no longer names `ImmersivePortalsClient` (qouteall types stay behind a lazy holder so a no-IP client does not resolve them). Dest ready uses `ClientWorldLoader.getWorldRenderer` instead of `WORLD_RENDERER_MAP.get`. Client-tick iris clock from alpha.1 is unchanged.
+- **Scanner RMB on the portal.** Decrypt FX spawned vanilla `ParticleTypes.PORTAL` at the clicked frame (usually the invisible frame cube), so nether-portal particle sprites sat on the custom vortex at scan start, after scan, and on repeat click. Those motes are now wormhole spirals at the window centre. Analyzer HUD and world BER are unchanged.
+- Portal class size ranges are **not** changed in this alpha.
+- Spawn animation is **not** in this alpha.
+
 ## 1.0.0-alpha.1
 
 Not a stable release. Do not merge, tag, or publish.
