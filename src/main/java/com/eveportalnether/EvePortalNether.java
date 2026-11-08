@@ -20,6 +20,7 @@ import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
 import com.eveportalnether.compat.aeroportals.AeroPortalsHook;
+import com.eveportalnether.compat.immersiveportals.ImmersivePortalsHook;
 import com.eveportalnether.network.ModNetwork;
 import com.eveportalnether.registry.ModBlocks;
 import com.eveportalnether.registry.ModEffects;
@@ -80,6 +81,7 @@ public class EvePortalNether {
     private void commonSetup(FMLCommonSetupEvent event) {
         LOGGER.info("HELLO FROM COMMON SETUP");
         event.enqueueWork(AeroPortalsHook::register);
+        event.enqueueWork(ImmersivePortalsHook::register);
     }
 
     // You can use SubscribeEvent and let the Event Bus discover methods to call

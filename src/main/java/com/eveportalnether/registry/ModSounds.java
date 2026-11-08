@@ -1,6 +1,7 @@
 package com.eveportalnether.registry;
 
 import com.eveportalnether.EvePortalNether;
+import com.eveportalnether.world.WormholeAmbient;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvent;
@@ -24,6 +25,15 @@ public class ModSounds {
     public static final DeferredHolder<SoundEvent, SoundEvent> PORTAL_CRACKLE = register("portal.crackle");
     public static final DeferredHolder<SoundEvent, SoundEvent> PORTAL_CHARGE = register("portal.charge");
     public static final DeferredHolder<SoundEvent, SoundEvent> PORTAL_RUMBLE = register("portal.rumble");
+    /**
+     * Fixed 256-block event range so a missing {@code sounds.json} distance cannot
+     * fall back to vanilla portal's 16. The looping instance still uses
+     * {@code Attenuation.NONE}; this is a LINEAR-fallback belt.
+     */
+    public static final DeferredHolder<SoundEvent, SoundEvent> PORTAL_HUM = SOUNDS.register("portal.hum",
+            () -> SoundEvent.createFixedRangeEvent(
+                    ResourceLocation.fromNamespaceAndPath(EvePortalNether.MODID, "portal.hum"),
+                    (float) WormholeAmbient.SOUND_ATTENUATION_DISTANCE));
 
     private static DeferredHolder<SoundEvent, SoundEvent> register(String name) {
         return SOUNDS.register(name, () -> SoundEvent.createVariableRangeEvent(

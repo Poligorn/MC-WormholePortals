@@ -7,12 +7,14 @@ import com.eveportalnether.network.ModNetwork;
 import com.eveportalnether.network.PortalScanPayload;
 import com.eveportalnether.registry.ModItems;
 import com.eveportalnether.registry.ModSounds;
+import com.eveportalnether.scan.ScanReveal;
 import com.eveportalnether.world.data.PortalManager;
 import com.eveportalnether.world.data.PortalPair;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -82,6 +84,7 @@ public final class DetectorDecryption {
         SESSIONS.put(player.getUUID(), new Session(level.dimension(), pos, pair, duration, level.getRandom()));
         ModNetwork.sendScan(player, PortalScanPayload.of(pair, duration));
         level.playSound(null, pos, ModSounds.DETECTOR_USE.get(), SoundSource.PLAYERS, 0.5F, 0.7F);
+        ScanReveal.preload(player, pair);
     }
 
     public static void tick(MinecraftServer server) {
@@ -94,6 +97,7 @@ public final class DetectorDecryption {
             Session session = entry.getValue();
             ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
             if (player == null) {
+                ScanReveal.stop(server, entry.getKey());
                 it.remove();
                 continue;
             }
@@ -103,6 +107,7 @@ public final class DetectorDecryption {
             if (pair == null || hand == null || level.dimension() != session.dimension
                     || player.distanceToSqr(session.pos.getCenter()) > MAX_DISTANCE_SQ) {
                 it.remove();
+                ScanReveal.stop(server, player.getUUID());
                 ModNetwork.sendScanLost(player);
                 player.displayClientMessage(Component.translatable("eveportalnether.detector.lost").withStyle(ChatFormatting.RED), true);
                 level.playSound(null, player.blockPosition(), ModSounds.RADAR_EMPTY.get(), SoundSource.PLAYERS, 0.5F, 1.3F);
@@ -112,8 +117,14 @@ public final class DetectorDecryption {
             session.elapsed++;
             if (session.elapsed % 4 == 0) {
                 level.sendParticles(ParticleTypes.ENCHANT, player.getX(), player.getY() + 1.2, player.getZ(), 6, 0.4, 0.5, 0.4, 0.4);
-                level.sendParticles(ParticleTypes.PORTAL, session.pos.getX() + 0.5, session.pos.getY() + 0.5, session.pos.getZ() + 0.5,
-                        0, player.getX() - session.pos.getX() - 0.5, player.getEyeY() - session.pos.getY() - 0.5, player.getZ() - session.pos.getZ() - 0.5, 1.0);
+                Vec3 center = DetectorScanFx.moteOrigin(pair, level.dimension());
+                double radius = DetectorScanFx.moteRadius(pair);
+                double alongX = DetectorScanFx.alongX(pair) ? 1.0 : 0.0;
+                for (int i = 0; i < 3; i++) {
+                    double angle = (session.elapsed * 0.11) + i * (Math.PI * 2.0 / 3.0);
+                    level.sendParticles(DetectorScanFx.portalMote(pair), center.x, center.y, center.z,
+                            0, radius, angle, alongX, 1.0);
+                }
             }
             int total = session.order.size();
             int revealed = Math.min(total, session.elapsed * total / Math.max(1, session.duration));
@@ -132,6 +143,7 @@ public final class DetectorDecryption {
                 if (pair.getTier() == PortalTier.MASSIVE) {
                     WormholeEvents.fire(player, WormholeEvents.DECRYPT_MASSIVE);
                 }
+                ScanReveal.start(player, pair);
             }
         }
     }

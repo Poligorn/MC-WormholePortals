@@ -3,12 +3,30 @@ package com.eveportalnether.gametest;
 import com.eveportalnether.Config;
 import com.eveportalnether.EvePortalNether;
 import com.eveportalnether.block.WormholeBlock;
+import com.eveportalnether.item.DetectorScanFx;
+import com.eveportalnether.particle.SpiralParticleOptions;
 import com.eveportalnether.registry.ModBlocks;
+import com.eveportalnether.scan.ScanReveal;
+import com.eveportalnether.scan.ScanRevealIris;
 import com.eveportalnether.world.PortalShape;
 import com.eveportalnether.world.PortalTier;
+import com.eveportalnether.world.SpawnAnim;
+import com.eveportalnether.world.WormholeAmbient;
+import com.eveportalnether.world.WormholeStyle;
+import com.eveportalnether.world.data.PortalPair;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
+
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
 import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.util.RandomSource;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.RenderShape;
@@ -119,8 +137,8 @@ public final class PortalSizeTests {
             helper.fail("frame should not draw a solid model");
             return;
         }
-        if (window.getRenderShape() != RenderShape.MODEL) {
-            helper.fail("window interior renderer must stay");
+        if (window.getRenderShape() != RenderShape.INVISIBLE) {
+            helper.fail("window interior is BER vortex / through-view, not a block model");
             return;
         }
         if (frame.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO, CollisionContext.empty()).isEmpty()) {
@@ -130,6 +148,539 @@ public final class PortalSizeTests {
         if (!window.getCollisionShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO, CollisionContext.empty()).isEmpty()) {
             helper.fail("window collision must stay empty");
             return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void scanRevealLastsSixtySeconds(GameTestHelper helper) {
+        assertEq(helper, ScanReveal.DURATION_TICKS, 1200, "scan reveal duration ticks");
+        assertEq(helper, ScanReveal.TRANSITION_TICKS, 40, "2s iris ticks");
+        if (Math.abs(ScanReveal.ease(0.0F)) > 0.001F || Math.abs(ScanReveal.ease(1.0F) - 1.0F) > 0.001F) {
+            helper.fail("ease must map 0→0 and 1→1");
+            return;
+        }
+        float mid = ScanReveal.ease(0.5F);
+        if (mid < 0.49F || mid > 0.51F) {
+            helper.fail("ease-in-out midpoint should be ~0.5, got " + mid);
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void scanRevealIrisDoesNotRewindOnDestFlicker(GameTestHelper helper) {
+        ScanRevealIris iris = new ScanRevealIris();
+        long expire = ScanReveal.DURATION_TICKS;
+        for (int tick = 0; tick < 100; tick++) {
+            if (iris.sample(true, false, tick, expire) != 0.0F || iris.clockStart() != -1L) {
+                helper.fail("iris must not start the 2s clock while dest chunks are unready");
+                return;
+            }
+        }
+        if (iris.sample(true, true, 100L, expire) != 0.0F || iris.clockStart() != 100L) {
+            helper.fail("first dest-ready sample is ease 0, not a wall-time jump to open");
+            return;
+        }
+        float lateReady = iris.sample(true, true, 100L + ScanReveal.TRANSITION_TICKS, expire);
+        if (lateReady < 0.99F) {
+            helper.fail("2s ease after dest is ready must reach open, got " + lateReady);
+            return;
+        }
+        ScanRevealIris jumped = new ScanRevealIris();
+        jumped.sample(true, false, 0L, expire);
+        float wouldSkip = jumped.sample(true, true, ScanReveal.TRANSITION_TICKS, expire);
+        if (wouldSkip > 0.05F) {
+            helper.fail("unready wall time must not skip the 2s open; got " + wouldSkip);
+            return;
+        }
+
+        ScanRevealIris flicker = new ScanRevealIris();
+        flicker.sample(true, true, 0L, expire);
+        for (int tick = 1; tick <= 10; tick++) {
+            flicker.sample(true, true, tick, expire);
+        }
+        float before = flicker.sample(true, true, 10L, expire);
+        if (flicker.sample(true, false, 11L, expire) != 0.0F) {
+            helper.fail("missing destination must cover with vortex");
+            return;
+        }
+        float resumed = flicker.sample(true, true, 40L, expire);
+        float fresh = new ScanRevealIris().sample(true, true, 40L, expire);
+        float wallJumped = ScanReveal.ease(40.0F / ScanReveal.TRANSITION_TICKS);
+        if (resumed >= wallJumped - 0.05F) {
+            helper.fail("flicker gap must not count as open time; resumed=" + resumed + " wall=" + wallJumped);
+            return;
+        }
+        if (Math.abs(resumed - before) > 0.08F) {
+            helper.fail("flicker must not rewind or skip the ease; before=" + before + " resumed=" + resumed);
+            return;
+        }
+        if (resumed <= fresh + 0.02F) {
+            helper.fail("resume must keep progress vs a fresh iris; resumed=" + resumed + " fresh=" + fresh);
+            return;
+        }
+        if (flicker.sample(false, true, 41L, expire) != 0.0F) {
+            helper.fail("non-scanner / other portal stays opaque");
+            return;
+        }
+        ScanRevealIris closing = new ScanRevealIris();
+        closing.sample(true, true, 0L, expire);
+        float open = closing.sample(true, true, expire - ScanReveal.TRANSITION_TICKS, expire);
+        float midClose = closing.sample(true, true, expire - ScanReveal.TRANSITION_TICKS / 2, expire);
+        float almost = closing.sample(true, true, expire - 1L, expire);
+        if (open < 0.99F) {
+            helper.fail("2s close must start at fully open, got " + open);
+            return;
+        }
+        if (Math.abs(midClose - 0.5F) > 0.05F) {
+            helper.fail("2s close midpoint should be ~0.5, got " + midClose);
+            return;
+        }
+        if (almost > 0.05F) {
+            helper.fail("2s close must reach opaque at the last tick, got " + almost);
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void scanRevealKeepsPreloadForSamePair(GameTestHelper helper) {
+        UUID pair = UUID.randomUUID();
+        if (!ScanReveal.shouldKeepSpawn(pair, pair, true)) {
+            helper.fail("COMPLETE must keep the decrypt preload for the same pair");
+            return;
+        }
+        if (ScanReveal.shouldKeepSpawn(pair, UUID.randomUUID(), true)) {
+            helper.fail("a different pair must despawn the previous reveal");
+            return;
+        }
+        if (ScanReveal.shouldKeepSpawn(pair, pair, false) || ScanReveal.shouldKeepSpawn(null, pair, true)) {
+            helper.fail("missing session cannot keep a spawn");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void destDimensionVortexWouldOccludeThroughView(GameTestHelper helper) {
+        if (!ScanRevealIris.drawVortexForDimension(Level.OVERWORLD, Level.OVERWORLD, true)) {
+            helper.fail("home overworld must still draw the vortex");
+            return;
+        }
+        if (ScanRevealIris.drawVortexForDimension(Level.NETHER, Level.OVERWORLD, true)) {
+            helper.fail("nether rendered for this revealing window must not draw the dest vortex");
+            return;
+        }
+        if (!ScanRevealIris.drawVortexForDimension(Level.NETHER, Level.OVERWORLD, false)) {
+            helper.fail("unrelated nether wormhole in a nested view must keep its vortex");
+            return;
+        }
+        if (ScanRevealIris.drawVortexForDimension(Level.OVERWORLD, Level.NETHER, true)) {
+            helper.fail("overworld rendered for this revealing window must not draw the dest vortex");
+            return;
+        }
+        if (!ScanRevealIris.drawVortexForDimension(Level.OVERWORLD, Level.NETHER, false)) {
+            helper.fail("unrelated overworld wormhole in a nested view must keep its vortex");
+            return;
+        }
+        if (!ScanRevealIris.drawVortexForDimension(Level.NETHER, null, true)) {
+            helper.fail("no viewer (menu) keeps the vortex");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void portalHumHasOneLoopHost(GameTestHelper helper) {
+        if (!WormholeAmbient.isLoopHost(false, false)) {
+            helper.fail("min-corner interior must host the looping drone");
+            return;
+        }
+        if (WormholeAmbient.isLoopHost(true, false) || WormholeAmbient.isLoopHost(false, true)) {
+            helper.fail("only one tile per window may host the drone");
+            return;
+        }
+        if (WormholeAmbient.LOOP_VOLUME < 0.2F || WormholeAmbient.LOOP_VOLUME > 0.8F) {
+            helper.fail("loop volume " + WormholeAmbient.LOOP_VOLUME + " is inaudible or blasting");
+            return;
+        }
+        assertEq(helper, WormholeAmbient.DEST_CENTER_FALLBACK_TICKS, 20, "dest-center iris fallback ticks");
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void portalHumHearRangeIs128NotVanilla16(GameTestHelper helper) {
+        assertEq(helper, WormholeAmbient.HEAR_DISTANCE_DEFAULT, 128, "default hear distance");
+        assertEq(helper, WormholeAmbient.HEAR_DISTANCE_MIN, 100, "hear min");
+        assertEq(helper, WormholeAmbient.HEAR_DISTANCE_MAX, 150, "hear max");
+        if (WormholeAmbient.SOUND_ATTENUATION_DISTANCE <= WormholeAmbient.HEAR_DISTANCE_MAX) {
+            helper.fail("file attenuation " + WormholeAmbient.SOUND_ATTENUATION_DISTANCE
+                    + " must stay above the 150-block config max so LINEAR cannot clamp at 16");
+            return;
+        }
+        if (WormholeAmbient.loopGain(0.0, 128) != 1.0F || WormholeAmbient.loopGain(8.0, 128) != 1.0F) {
+            helper.fail("near field must stay full volume");
+            return;
+        }
+        float atOldClamp = WormholeAmbient.loopGain(16.0, 128);
+        if (atOldClamp < 0.85F) {
+            helper.fail("16 blocks is vanilla PORTAL_AMBIENT silence; gain must stay high, got " + atOldClamp);
+            return;
+        }
+        float mid = WormholeAmbient.loopGain(64.0, 128);
+        float far = WormholeAmbient.loopGain(96.0, 128);
+        if (mid <= far || far <= 0.0F) {
+            helper.fail("falloff must decrease smoothly toward 128, mid=" + mid + " far=" + far);
+            return;
+        }
+        if (WormholeAmbient.loopGain(128.0, 128) != 0.0F || WormholeAmbient.loopGain(200.0, 128) != 0.0F) {
+            helper.fail("gain must be 0 at and beyond hear distance");
+            return;
+        }
+        float search = WormholeAmbient.loopGain(100.0, 128);
+        if (search < 0.20F) {
+            helper.fail("100 blocks must stay in the search band, not a dead quadratic; gain=" + search);
+            return;
+        }
+        if (WormholeAmbient.usesOpenAlLinear()) {
+            helper.fail("live loop must not use OpenAL LINEAR (double fade with loopGain)");
+            return;
+        }
+        float instance = WormholeAmbient.LOOP_VOLUME * search;
+        float none = instance * WormholeAmbient.openAlLinearScale(100.0, instance, 256, false);
+        float linear = instance * WormholeAmbient.openAlLinearScale(100.0, instance, 256, true);
+        if (none <= linear + 0.001F) {
+            helper.fail("NONE must not apply a second OpenAL fade; none=" + none + " linear=" + linear);
+            return;
+        }
+        assertEq(helper, WormholeAmbient.hearDistance(128), 128, "gain uses config 128");
+        assertEq(helper, WormholeAmbient.hearDistance(150), 150, "gain is not shrunk to render distance");
+        assertEq(helper, WormholeAmbient.loadedChunkBlocks(12), 192, "RD 12 loads 192");
+        assertEq(helper, WormholeAmbient.loadedChunkBlocks(6), 96, "RD 6 only starts the loop inside 96");
+        if (WormholeAmbient.sameDimension(Level.OVERWORLD, Level.NETHER)) {
+            helper.fail("overworld drone must not follow a nether viewer");
+            return;
+        }
+        if (!WormholeAmbient.sameDimension(Level.OVERWORLD, Level.OVERWORLD)) {
+            helper.fail("same dimension must match");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void detectorScanFxDoesNotUseNetherPortalSprite(GameTestHelper helper) {
+        PortalPair pair = new PortalPair(UUID.randomUUID(), new BlockPos(10, 64, 2), new BlockPos(4, 40, 4),
+                Direction.Axis.Z, 8, 10, PortalTier.STANDARD, 6000, 8);
+        ParticleOptions mote = DetectorScanFx.portalMote(pair);
+        if (!(mote instanceof SpiralParticleOptions spiral)) {
+            helper.fail("scanner RMB FX must use wormhole spiral motes, not " + mote);
+            return;
+        }
+        if (spiral.getType() == ParticleTypes.PORTAL) {
+            helper.fail("scanner RMB must not spawn vanilla nether-portal particles on the vortex");
+            return;
+        }
+        Vec3 origin = DetectorScanFx.moteOrigin(pair, Level.OVERWORLD);
+        Vec3 expected = PortalShape.windowCenter(pair.getOverworldOrigin(), pair.getAxis(), pair.getWidth(), pair.getHeight());
+        if (origin.distanceToSqr(expected) > 0.001) {
+            helper.fail("scan motes must start at the window centre, not the clicked frame: " + origin);
+            return;
+        }
+        Vec3 frame = Vec3.atCenterOf(pair.getOverworldOrigin());
+        if (origin.distanceToSqr(frame) < 0.25) {
+            helper.fail("window centre must not collapse to the frame origin the detector clicked");
+            return;
+        }
+        if (DetectorScanFx.alongX(pair)) {
+            helper.fail("Z portal spiral should orbit in the X/Y plane");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void massiveStandPosIsInterior(GameTestHelper helper) {
+        BlockPos origin = new BlockPos(0, 64, 0);
+        BlockPos stand = PortalShape.standPos(origin, Direction.Axis.Z, 50, 50);
+        if (PortalShape.isFrame(stand.getX() - origin.getX(), stand.getY() - origin.getY(), 50, 50)) {
+            helper.fail("50x50 stand column must be interior, not frame");
+            return;
+        }
+        if (!PortalShape.contains(origin, Direction.Axis.Z, 50, 50, stand)) {
+            helper.fail("50x50 stand must stay inside the rectangle");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void destApertureTucksUnderRim(GameTestHelper helper) {
+        if (WormholeStyle.APERTURE_FILL < WormholeStyle.RIM * 2.0F) {
+            helper.fail("IP dest quad extra " + WormholeStyle.APERTURE_FILL
+                    + " must reach under both sides of the " + WormholeStyle.RIM + " rim");
+            return;
+        }
+        int inner = 5;
+        float aperture = inner + WormholeStyle.APERTURE_FILL;
+        if (aperture <= inner) {
+            helper.fail("aperture must be larger than the inner window so dest fills to the rim");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void windowBoxCoversBothAxes(GameTestHelper helper) {
+        BlockPos origin = new BlockPos(50, 72, 18);
+        AABB zBox = PortalShape.windowBox(origin, Direction.Axis.Z, 7, 8);
+        if (!zBox.intersects(new AABB(origin.offset(3, 4, 0)))) {
+            helper.fail("Z window box must cover the interior");
+            return;
+        }
+        if (zBox.intersects(new AABB(origin.offset(0, 0, 2)))) {
+            helper.fail("Z window box must stay on the portal plane");
+            return;
+        }
+        AABB xBox = PortalShape.windowBox(origin, Direction.Axis.X, 7, 8);
+        if (!xBox.intersects(new AABB(origin.offset(0, 4, 3)))) {
+            helper.fail("X window box must cover the interior");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void vortexIsOpaqueAndRimIsThin(GameTestHelper helper) {
+        if (WormholeStyle.RIM < 0.02F || WormholeStyle.RIM > 0.04F) {
+            helper.fail("solid rim width " + WormholeStyle.RIM + " should be a thin ~0.03 line");
+            return;
+        }
+        if (WormholeStyle.HALO <= WormholeStyle.RIM || WormholeStyle.HALO > 0.09F) {
+            helper.fail("halo " + WormholeStyle.HALO + " should be a short outside glow, not a slab");
+            return;
+        }
+        if (WormholeStyle.DEPTH > 0.12F) {
+            helper.fail("rim depth " + WormholeStyle.DEPTH + " is a slab, not a modest recess");
+            return;
+        }
+        assertEq(helper, WormholeStyle.VORTEX_ALPHA, 255, "vortex vertex alpha");
+        assertEq(helper, WormholeStyle.WHITE[0], 255, "white rim R");
+        assertEq(helper, WormholeStyle.WHITE[1], 255, "white rim G");
+        assertEq(helper, WormholeStyle.WHITE[2], 255, "white rim B");
+        assertEq(helper, WormholeStyle.FULL_BRIGHT, 0xF000F0, "rim packed light");
+        int dark = WormholeStyle.vortexRgb(0x3366CC, 0.0F, 0.0F, 0.0F, 2, 3);
+        int r = dark >> 16 & 0xFF;
+        int g = dark >> 8 & 0xFF;
+        int b = dark & 0xFF;
+        if (r + g + b < 40) {
+            helper.fail("vortex centre is black, not a shaded portal tint: " + r + "," + g + "," + b);
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void vortexIsPixelFunnelNotFlatFill(GameTestHelper helper) {
+        int tint = 0xFF8A2B;
+        int a = WormholeStyle.vortexRgb(tint, 0.01F, 0.01F, 0.4F, 2, 3);
+        int b = WormholeStyle.vortexRgb(tint, 0.04F, 0.02F, 0.4F, 2, 3);
+        if (a != b) {
+            helper.fail("samples in the same texel must match for pixel-art snapping");
+            return;
+        }
+        int centre = WormholeStyle.vortexRgb(tint, 0.0F, 0.0F, 0.4F, 2, 3);
+        int strand = WormholeStyle.vortexRgb(tint, 0.6F, 0.15F, 0.4F, 2, 3);
+        if (centre == strand) {
+            helper.fail("funnel centre and a mid strand should differ (not a uniform fill)");
+            return;
+        }
+        int cr = centre >> 16 & 0xFF;
+        int cg = centre >> 8 & 0xFF;
+        int sr = strand >> 16 & 0xFF;
+        int sg = strand >> 8 & 0xFF;
+        if (cr <= cg + 8 || sr <= sg + 8) {
+            helper.fail("orange portal vortex must stay warm-hued, not black/blue");
+            return;
+        }
+        if (Math.abs(sr - 255) < 2 && Math.abs(sg - 214) < 20) {
+            helper.fail("strand is yellow-white highlight, not portal ochre");
+            return;
+        }
+        int blue = WormholeStyle.vortexRgb(0x3B7BFF, 0.5F, 0.0F, 0.4F, 2, 3);
+        if ((blue & 0xFF) < (blue >> 16 & 0xFF)) {
+            helper.fail("blue portal vortex must stay blue-tinted, not forced gold");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void spawnAnimFollowsApprovedV4(GameTestHelper helper) {
+        assertEq(helper, SpawnAnim.formingDuration(0), 0, "formingTicks 0 skips spawn");
+        assertEq(helper, SpawnAnim.formingDuration(100), SpawnAnim.DURATION_TICKS, "visual is not shorter than v4");
+        assertEq(helper, SpawnAnim.formingDuration(200), 200, "longer config is kept");
+        if (SpawnAnim.plays(0, 0) || SpawnAnim.plays(150, 0) || SpawnAnim.plays(0, 40)) {
+            helper.fail("saved portals with no forming clock must not replay spawn");
+            return;
+        }
+        if (!SpawnAnim.plays(150, 40)) {
+            helper.fail("live remaining ticks must continue the spawn");
+            return;
+        }
+        assertEq(helper, SpawnAnim.elapsed(150, 40), 110, "late join elapsed");
+        if (SpawnAnim.phase(SpawnAnim.elapsed(150, 10)) == SpawnAnim.Phase.LIGHTNING) {
+            helper.fail("late join with 10 ticks left must not restart at lightning");
+            return;
+        }
+        if (SpawnAnim.phase(1.0F) != SpawnAnim.Phase.LIGHTNING
+                || SpawnAnim.phase(SpawnAnim.ASSEMBLY_START + 1) != SpawnAnim.Phase.UL
+                || SpawnAnim.phase(SpawnAnim.ASSEMBLY_START + SpawnAnim.CORNER_TICKS + 1) != SpawnAnim.Phase.UR
+                || SpawnAnim.phase(SpawnAnim.ASSEMBLY_START + SpawnAnim.CORNER_TICKS * 2 + 1) != SpawnAnim.Phase.LR
+                || SpawnAnim.phase(SpawnAnim.ASSEMBLY_START + SpawnAnim.CORNER_TICKS * 3 + 1) != SpawnAnim.Phase.LL
+                || SpawnAnim.phase(SpawnAnim.GROW_START + 1) != SpawnAnim.Phase.GROW
+                || SpawnAnim.phase(SpawnAnim.FILL_START + 1) != SpawnAnim.Phase.FILL) {
+            helper.fail("v4 phases must be lightning, seed, UL, UR, LR, LL, grow, fill");
+            return;
+        }
+        SpawnAnim.Frame ul = SpawnAnim.frame(8, 10, SpawnAnim.ASSEMBLY_START + 4);
+        if (!ul.seedAtCentre() || !ul.lineSeedToUl() || ul.lineTop() || ul.urVisible()) {
+            helper.fail("UL flies from the centre with a stretching seed line, not 4 rays");
+            return;
+        }
+        SpawnAnim.Frame ur = SpawnAnim.frame(8, 10, SpawnAnim.ASSEMBLY_START + SpawnAnim.CORNER_TICKS + 8);
+        if (!ur.lineTop() || ur.lineRight() || !ur.seedAtCentre()) {
+            helper.fail("UR must stretch the top edge while the seed stays at centre");
+            return;
+        }
+        if (ur.urx() <= ur.cx() + 0.02F) {
+            helper.fail("UR point must leave the centre, not pop in at the corner");
+            return;
+        }
+        SpawnAnim.Frame ll = SpawnAnim.frame(16, 20, SpawnAnim.ASSEMBLY_START + SpawnAnim.CORNER_TICKS * 3 + 6);
+        if (ll.seedAtCentre() || !ll.seedVisible() || ll.llVisible()) {
+            helper.fail("LL is the seed leaving the centre; no fifth point remains");
+            return;
+        }
+        if (!ll.lineBottom() || !ll.lineLeft()) {
+            helper.fail("LL closes bottom and left while moving");
+            return;
+        }
+        SpawnAnim.Frame small = SpawnAnim.frame(8, 10, SpawnAnim.GROW_START);
+        SpawnAnim.Frame grown = SpawnAnim.frame(8, 10, SpawnAnim.FILL_START);
+        SpawnAnim.Frame massive = SpawnAnim.frame(50, 50, SpawnAnim.FILL_START);
+        if (grown.urx() <= small.urx() + 0.5F) {
+            helper.fail("frame must grow from the small rectangle to the actual inner size");
+            return;
+        }
+        if (Math.abs(grown.urx() - (8 - 1)) > 0.05F || Math.abs(massive.urx() - (50 - 1)) > 0.05F) {
+            helper.fail("grown corners must match the pair width/height, not a hardcoded size");
+            return;
+        }
+        if (WormholeStyle.irisSubdiv(50) <= WormholeStyle.vortexSubdiv(50)) {
+            helper.fail("iris hole needs finer quads than the idle pixel vortex");
+            return;
+        }
+        PortalPair forming = new PortalPair(UUID.randomUUID(), new BlockPos(0, 64, 0), new BlockPos(0, 40, 0),
+                Direction.Axis.Z, 8, 10, PortalTier.STANDARD, 6000, 8);
+        forming.setForming(40, 150);
+        if (!forming.isForming() || forming.getFormingTotal() != 150) {
+            helper.fail("forming clock must keep total so late join can resume");
+            return;
+        }
+        var tag = forming.save();
+        PortalPair loaded = PortalPair.load(tag);
+        if (loaded.getFormingTicks() != 40 || loaded.getFormingTotal() != 150) {
+            helper.fail("forming remaining/total must round-trip in NBT");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void spawnAnimAssemblyIsFasterByOneAndAHalf(GameTestHelper helper) {
+        assertEq(helper, SpawnAnim.LIGHTNING_TICKS, 6, "lightning ticks");
+        assertEq(helper, SpawnAnim.SEED_TICKS, 14, "seed ticks");
+        assertEq(helper, SpawnAnim.CORNER_TICKS_V4, 20, "approved v4 corner ticks");
+        assertEq(helper, SpawnAnim.CORNER_TICKS, 13, "assembly ÷1.5 per corner");
+        assertEq(helper, SpawnAnim.ASSEMBLY_TICKS, 52, "four corners");
+        assertEq(helper, SpawnAnim.GROW_TICKS, 40, "grow unchanged");
+        assertEq(helper, SpawnAnim.FILL_TICKS, 10, "fill unchanged");
+        assertEq(helper, SpawnAnim.ASSEMBLY_START, 20, "lightning+seed unchanged");
+        assertEq(helper, SpawnAnim.GROW_START, 72, "grow starts earlier after faster assembly");
+        assertEq(helper, SpawnAnim.FILL_START, 112, "fill starts earlier");
+        assertEq(helper, SpawnAnim.DURATION_TICKS, 122, "lifecycle total follows assembly");
+        if (SpawnAnim.GROW_START >= SpawnAnim.ASSEMBLY_START + SpawnAnim.CORNER_TICKS_V4 * 4) {
+            helper.fail("grow must shift earlier; assembly was not shortened");
+            return;
+        }
+        if (SpawnAnim.phase(SpawnAnim.ASSEMBLY_START + SpawnAnim.CORNER_TICKS + 1) != SpawnAnim.Phase.UR) {
+            helper.fail("faster corners must still be sequential UL→UR");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void newPortalsRandomizeClassGeometry(GameTestHelper helper) {
+        PortalShape.OuterRange stale = PortalShape.resolveOuterRange("standard", "width", 8, 16, 4, 7, 3, 50);
+        if (!stale.classFallback() || stale.min() != 8 || stale.max() != 16) {
+            helper.fail("stale global 4–7 must not collapse standard 8–16, got " + stale);
+            return;
+        }
+        PortalShape.OuterRange height = PortalShape.resolveOuterRange("standard", "height", 8, 20, 5, 8, 4, 50);
+        if (!height.classFallback() || height.min() != 8 || height.max() != 20) {
+            helper.fail("stale global height 5–8 must not pin standard at 8, got " + height);
+            return;
+        }
+        PortalShape.OuterRange cap = PortalShape.resolveOuterRange("standard", "width", 8, 16, 4, 12, 3, 50);
+        if (cap.classFallback() || cap.min() != 8 || cap.max() != 12) {
+            helper.fail("intentional global cap 12 should keep an 8–12 span, got " + cap);
+            return;
+        }
+
+        int oldMaxW = Config.MAX_PORTAL_WIDTH.get();
+        int oldMaxH = Config.MAX_PORTAL_HEIGHT.get();
+        try {
+            Config.MAX_PORTAL_WIDTH.set(7);
+            Config.MAX_PORTAL_HEIGHT.set(8);
+            Set<String> geometries = new HashSet<>();
+            RandomSource random = RandomSource.create(42L);
+            for (int i = 0; i < 40; i++) {
+                int w = PortalShape.rollWidth(PortalTier.STANDARD, random);
+                int h = PortalShape.rollHeight(PortalTier.STANDARD, random);
+                PortalPair pair = new PortalPair(UUID.randomUUID(), new BlockPos(i, 64, 0), new BlockPos(i, 40, 0),
+                        Direction.Axis.Z, w, h, PortalTier.STANDARD, 6000, 8);
+                if (pair.getWidth() != w || pair.getHeight() != h) {
+                    helper.fail("constructed pair must keep rolled geometry " + w + "x" + h
+                            + " but stored " + pair.getWidth() + "x" + pair.getHeight());
+                    return;
+                }
+                if (w < 8 || w > 16 || h < 8 || h > 20) {
+                    helper.fail("standard roll escaped class bounds: " + w + "x" + h);
+                    return;
+                }
+                geometries.add(w + "x" + h);
+            }
+            if (geometries.size() < 8) {
+                helper.fail("standard command/world path must randomize; got " + geometries);
+                return;
+            }
+            random = RandomSource.create(7L);
+            Set<Integer> massiveW = new HashSet<>();
+            Set<Integer> unstableW = new HashSet<>();
+            for (int i = 0; i < 40; i++) {
+                massiveW.add(PortalShape.rollWidth(PortalTier.MASSIVE, random));
+                unstableW.add(PortalShape.rollWidth(PortalTier.UNSTABLE, random));
+            }
+            if (massiveW.size() < 5 || unstableW.size() < 3) {
+                helper.fail("class bounds must still roll: massive=" + massiveW + " unstable=" + unstableW);
+                return;
+            }
+        } finally {
+            Config.MAX_PORTAL_WIDTH.set(oldMaxW);
+            Config.MAX_PORTAL_HEIGHT.set(oldMaxH);
         }
         helper.succeed();
     }

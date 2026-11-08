@@ -2,6 +2,7 @@ package com.eveportalnether.command;
 
 import com.eveportalnether.Config;
 import com.eveportalnether.EvePortalNether;
+import com.eveportalnether.world.PortalShape;
 import com.eveportalnether.world.PortalSpawner;
 import com.eveportalnether.world.PortalTier;
 import com.eveportalnether.world.data.PortalManager;
@@ -63,8 +64,15 @@ public class ModCommands {
             return 0;
         }
 
+        PortalShape.OuterRange wr = PortalShape.widthRange(tier);
+        PortalShape.OuterRange hr = PortalShape.heightRange(tier);
         source.sendSuccess(() -> Component.literal("Portal " + pair.getSignature() + " (" + tier.getSerializedName() + ", "
-                + pair.getWidth() + "x" + pair.getHeight() + ", " + pair.getColor().getSerializedName() + "). Overworld "
+                + pair.getWidth() + "x" + pair.getHeight()
+                + " of class " + wr.min() + "–" + wr.max() + "×" + hr.min() + "–" + hr.max()
+                + (wr.classFallback() || hr.classFallback()
+                ? "; global spawn min/max was ignored so this class can still randomize"
+                : "")
+                + ", " + pair.getColor().getSerializedName() + "). Overworld "
                 + pair.getOverworldOrigin().toShortString()
                 + " / Nether "
                 + pair.getNetherOrigin().toShortString()
