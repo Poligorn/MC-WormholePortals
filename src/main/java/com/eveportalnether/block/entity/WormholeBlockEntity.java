@@ -28,6 +28,8 @@ public class WormholeBlockEntity extends BlockEntity {
     private int ticksRemaining = 6000;
     private int jumpsRemaining = 10;
     private boolean isCenter = false;
+    private int formingTotal;
+    private int formingRemaining;
 
     public WormholeBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.WORMHOLE_BLOCK_ENTITY.get(), pos, state);
@@ -60,12 +62,37 @@ public class WormholeBlockEntity extends BlockEntity {
         setChanged();
     }
 
+    public int getFormingTotal() {
+        return formingTotal;
+    }
+
+    public int getFormingRemaining() {
+        return formingRemaining;
+    }
+
+    public void setForming(int total, int remaining) {
+        int nextTotal = Math.max(0, total);
+        int nextRemaining = Math.max(0, remaining);
+        if (this.formingTotal == nextTotal && this.formingRemaining == nextRemaining) {
+            return;
+        }
+        this.formingTotal = nextTotal;
+        this.formingRemaining = nextRemaining;
+        setChanged();
+        if (level != null) {
+            BlockState state = getBlockState();
+            level.sendBlockUpdated(worldPosition, state, state, 2);
+        }
+    }
+
     @Override
     protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
         super.saveAdditional(tag, registries);
         tag.putInt("TicksRemaining", this.ticksRemaining);
         tag.putInt("JumpsRemaining", this.jumpsRemaining);
         tag.putBoolean("IsCenter", this.isCenter);
+        tag.putInt("FormingTotal", this.formingTotal);
+        tag.putInt("FormingRemaining", this.formingRemaining);
     }
 
     @Override
@@ -80,6 +107,8 @@ public class WormholeBlockEntity extends BlockEntity {
         if (tag.contains("IsCenter")) {
             this.isCenter = tag.getBoolean("IsCenter");
         }
+        this.formingTotal = tag.getInt("FormingTotal");
+        this.formingRemaining = tag.getInt("FormingRemaining");
     }
 
     @Override
@@ -112,6 +141,7 @@ public class WormholeBlockEntity extends BlockEntity {
 
         blockEntity.ticksRemaining = pair.getTicksRemaining();
         blockEntity.jumpsRemaining = pair.getJumpsRemaining();
+        blockEntity.setForming(pair.getFormingTotal(), pair.getFormingTicks());
         if (serverLevel.getGameTime() % 20 == 0) {
             blockEntity.setChanged();
         }

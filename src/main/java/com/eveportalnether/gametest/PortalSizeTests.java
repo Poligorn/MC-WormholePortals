@@ -10,6 +10,7 @@ import com.eveportalnether.scan.ScanReveal;
 import com.eveportalnether.scan.ScanRevealIris;
 import com.eveportalnether.world.PortalShape;
 import com.eveportalnether.world.PortalTier;
+import com.eveportalnether.world.SpawnAnim;
 import com.eveportalnether.world.WormholeAmbient;
 import com.eveportalnether.world.WormholeStyle;
 import com.eveportalnether.world.data.PortalPair;
@@ -168,31 +169,55 @@ public final class PortalSizeTests {
     public static void scanRevealIrisDoesNotRewindOnDestFlicker(GameTestHelper helper) {
         ScanRevealIris iris = new ScanRevealIris();
         long expire = ScanReveal.DURATION_TICKS;
-        if (iris.sample(true, false, 0L, expire) != 0.0F) {
-            helper.fail("iris stays closed until destination is ready");
-            return;
-        }
-        for (int tick = 1; tick < ScanReveal.TRANSITION_TICKS; tick++) {
+        for (int tick = 0; tick < 100; tick++) {
             if (iris.sample(true, false, tick, expire) != 0.0F || iris.clockStart() != -1L) {
                 helper.fail("iris must not start the 2s clock while dest chunks are unready");
                 return;
             }
         }
-        if (iris.sample(true, true, 1L, expire) != 0.0F || iris.clockStart() != 1L) {
-            helper.fail("iris clock must start at the first ready tick (ease 0 at age 0)");
+        if (iris.sample(true, true, 100L, expire) != 0.0F || iris.clockStart() != 100L) {
+            helper.fail("first dest-ready sample is ease 0, not a wall-time jump to open");
             return;
         }
-        if (iris.sample(true, false, 2L, expire) != 0.0F) {
+        float lateReady = iris.sample(true, true, 100L + ScanReveal.TRANSITION_TICKS, expire);
+        if (lateReady < 0.99F) {
+            helper.fail("2s ease after dest is ready must reach open, got " + lateReady);
+            return;
+        }
+        ScanRevealIris jumped = new ScanRevealIris();
+        jumped.sample(true, false, 0L, expire);
+        float wouldSkip = jumped.sample(true, true, ScanReveal.TRANSITION_TICKS, expire);
+        if (wouldSkip > 0.05F) {
+            helper.fail("unready wall time must not skip the 2s open; got " + wouldSkip);
+            return;
+        }
+
+        ScanRevealIris flicker = new ScanRevealIris();
+        flicker.sample(true, true, 0L, expire);
+        for (int tick = 1; tick <= 10; tick++) {
+            flicker.sample(true, true, tick, expire);
+        }
+        float before = flicker.sample(true, true, 10L, expire);
+        if (flicker.sample(true, false, 11L, expire) != 0.0F) {
             helper.fail("missing destination must cover with vortex");
             return;
         }
-        float resumed = iris.sample(true, true, 21L, expire);
-        float fresh = new ScanRevealIris().sample(true, true, 21L, expire);
-        if (resumed <= fresh + 0.05F) {
-            helper.fail("dest flicker must not rewind the 2s ease; resumed=" + resumed + " fresh=" + fresh);
+        float resumed = flicker.sample(true, true, 40L, expire);
+        float fresh = new ScanRevealIris().sample(true, true, 40L, expire);
+        float wallJumped = ScanReveal.ease(40.0F / ScanReveal.TRANSITION_TICKS);
+        if (resumed >= wallJumped - 0.05F) {
+            helper.fail("flicker gap must not count as open time; resumed=" + resumed + " wall=" + wallJumped);
             return;
         }
-        if (iris.sample(false, true, 22L, expire) != 0.0F) {
+        if (Math.abs(resumed - before) > 0.08F) {
+            helper.fail("flicker must not rewind or skip the ease; before=" + before + " resumed=" + resumed);
+            return;
+        }
+        if (resumed <= fresh + 0.02F) {
+            helper.fail("resume must keep progress vs a fresh iris; resumed=" + resumed + " fresh=" + fresh);
+            return;
+        }
+        if (flicker.sample(false, true, 41L, expire) != 0.0F) {
             helper.fail("non-scanner / other portal stays opaque");
             return;
         }
@@ -211,6 +236,24 @@ public final class PortalSizeTests {
         }
         if (almost > 0.05F) {
             helper.fail("2s close must reach opaque at the last tick, got " + almost);
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void scanRevealKeepsPreloadForSamePair(GameTestHelper helper) {
+        UUID pair = UUID.randomUUID();
+        if (!ScanReveal.shouldKeepSpawn(pair, pair, true)) {
+            helper.fail("COMPLETE must keep the decrypt preload for the same pair");
+            return;
+        }
+        if (ScanReveal.shouldKeepSpawn(pair, UUID.randomUUID(), true)) {
+            helper.fail("a different pair must despawn the previous reveal");
+            return;
+        }
+        if (ScanReveal.shouldKeepSpawn(pair, pair, false) || ScanReveal.shouldKeepSpawn(null, pair, true)) {
+            helper.fail("missing session cannot keep a spawn");
             return;
         }
         helper.succeed();
@@ -259,7 +302,7 @@ public final class PortalSizeTests {
             helper.fail("loop volume " + WormholeAmbient.LOOP_VOLUME + " is inaudible or blasting");
             return;
         }
-        assertEq(helper, WormholeAmbient.DEST_CENTER_FALLBACK_TICKS, 100, "dest-center iris fallback ticks");
+        assertEq(helper, WormholeAmbient.DEST_CENTER_FALLBACK_TICKS, 20, "dest-center iris fallback ticks");
         helper.succeed();
     }
 
@@ -447,6 +490,88 @@ public final class PortalSizeTests {
         int blue = WormholeStyle.vortexRgb(0x3B7BFF, 0.5F, 0.0F, 0.4F, 2, 3);
         if ((blue & 0xFF) < (blue >> 16 & 0xFF)) {
             helper.fail("blue portal vortex must stay blue-tinted, not forced gold");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void spawnAnimFollowsApprovedV4(GameTestHelper helper) {
+        assertEq(helper, SpawnAnim.formingDuration(0), 0, "formingTicks 0 skips spawn");
+        assertEq(helper, SpawnAnim.formingDuration(100), SpawnAnim.DURATION_TICKS, "visual is not shorter than v4");
+        assertEq(helper, SpawnAnim.formingDuration(200), 200, "longer config is kept");
+        if (SpawnAnim.plays(0, 0) || SpawnAnim.plays(150, 0) || SpawnAnim.plays(0, 40)) {
+            helper.fail("saved portals with no forming clock must not replay spawn");
+            return;
+        }
+        if (!SpawnAnim.plays(150, 40)) {
+            helper.fail("live remaining ticks must continue the spawn");
+            return;
+        }
+        assertEq(helper, SpawnAnim.elapsed(150, 40), 110, "late join elapsed");
+        if (SpawnAnim.phase(SpawnAnim.elapsed(150, 10)) == SpawnAnim.Phase.LIGHTNING) {
+            helper.fail("late join with 10 ticks left must not restart at lightning");
+            return;
+        }
+        if (SpawnAnim.phase(1.0F) != SpawnAnim.Phase.LIGHTNING
+                || SpawnAnim.phase(SpawnAnim.ASSEMBLY_START + 1) != SpawnAnim.Phase.UL
+                || SpawnAnim.phase(SpawnAnim.ASSEMBLY_START + SpawnAnim.CORNER_TICKS + 1) != SpawnAnim.Phase.UR
+                || SpawnAnim.phase(SpawnAnim.ASSEMBLY_START + SpawnAnim.CORNER_TICKS * 2 + 1) != SpawnAnim.Phase.LR
+                || SpawnAnim.phase(SpawnAnim.ASSEMBLY_START + SpawnAnim.CORNER_TICKS * 3 + 1) != SpawnAnim.Phase.LL
+                || SpawnAnim.phase(SpawnAnim.GROW_START + 1) != SpawnAnim.Phase.GROW
+                || SpawnAnim.phase(SpawnAnim.FILL_START + 1) != SpawnAnim.Phase.FILL) {
+            helper.fail("v4 phases must be lightning, seed, UL, UR, LR, LL, grow, fill");
+            return;
+        }
+        SpawnAnim.Frame ul = SpawnAnim.frame(8, 10, SpawnAnim.ASSEMBLY_START + 4);
+        if (!ul.seedAtCentre() || !ul.lineSeedToUl() || ul.lineTop() || ul.urVisible()) {
+            helper.fail("UL flies from the centre with a stretching seed line, not 4 rays");
+            return;
+        }
+        SpawnAnim.Frame ur = SpawnAnim.frame(8, 10, SpawnAnim.ASSEMBLY_START + SpawnAnim.CORNER_TICKS + 8);
+        if (!ur.lineTop() || ur.lineRight() || !ur.seedAtCentre()) {
+            helper.fail("UR must stretch the top edge while the seed stays at centre");
+            return;
+        }
+        if (ur.urx() <= ur.cx() + 0.02F) {
+            helper.fail("UR point must leave the centre, not pop in at the corner");
+            return;
+        }
+        SpawnAnim.Frame ll = SpawnAnim.frame(16, 20, SpawnAnim.ASSEMBLY_START + SpawnAnim.CORNER_TICKS * 3 + 6);
+        if (ll.seedAtCentre() || !ll.seedVisible() || ll.llVisible()) {
+            helper.fail("LL is the seed leaving the centre; no fifth point remains");
+            return;
+        }
+        if (!ll.lineBottom() || !ll.lineLeft()) {
+            helper.fail("LL closes bottom and left while moving");
+            return;
+        }
+        SpawnAnim.Frame small = SpawnAnim.frame(8, 10, SpawnAnim.GROW_START);
+        SpawnAnim.Frame grown = SpawnAnim.frame(8, 10, SpawnAnim.FILL_START);
+        SpawnAnim.Frame massive = SpawnAnim.frame(50, 50, SpawnAnim.FILL_START);
+        if (grown.urx() <= small.urx() + 0.5F) {
+            helper.fail("frame must grow from the small rectangle to the actual inner size");
+            return;
+        }
+        if (Math.abs(grown.urx() - (8 - 1)) > 0.05F || Math.abs(massive.urx() - (50 - 1)) > 0.05F) {
+            helper.fail("grown corners must match the pair width/height, not a hardcoded size");
+            return;
+        }
+        if (WormholeStyle.irisSubdiv(50) <= WormholeStyle.vortexSubdiv(50)) {
+            helper.fail("iris hole needs finer quads than the idle pixel vortex");
+            return;
+        }
+        PortalPair forming = new PortalPair(UUID.randomUUID(), new BlockPos(0, 64, 0), new BlockPos(0, 40, 0),
+                Direction.Axis.Z, 8, 10, PortalTier.STANDARD, 6000, 8);
+        forming.setForming(40, 150);
+        if (!forming.isForming() || forming.getFormingTotal() != 150) {
+            helper.fail("forming clock must keep total so late join can resume");
+            return;
+        }
+        var tag = forming.save();
+        PortalPair loaded = PortalPair.load(tag);
+        if (loaded.getFormingTicks() != 40 || loaded.getFormingTotal() != 150) {
+            helper.fail("forming remaining/total must round-trip in NBT");
             return;
         }
         helper.succeed();

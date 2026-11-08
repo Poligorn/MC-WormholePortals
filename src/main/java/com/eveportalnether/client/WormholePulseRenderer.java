@@ -6,6 +6,7 @@ import com.eveportalnether.block.entity.WormholeBlockEntity;
 import com.eveportalnether.registry.ModBlocks;
 import com.eveportalnether.scan.ScanRevealIris;
 import com.eveportalnether.world.PortalShape;
+import com.eveportalnether.world.SpawnAnim;
 import com.eveportalnether.world.WormholeStyle;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
@@ -51,6 +52,10 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
 
     @Override
     public AABB getRenderBoundingBox(WormholeBlockEntity entity) {
+        if (entity.getBlockState().hasProperty(WormholeBlock.FORMING)
+                && entity.getBlockState().getValue(WormholeBlock.FORMING)) {
+            return new AABB(entity.getBlockPos()).inflate(50.0);
+        }
         return new AABB(entity.getBlockPos()).inflate(0.5);
     }
 
@@ -64,11 +69,52 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
         Level level = entity.getLevel();
         BlockPos pos = entity.getBlockPos();
         Direction.Axis axis = state.getValue(WormholeBlock.AXIS);
+        if (state.getValue(WormholeBlock.FORMING)) {
+            if (isSpawnHost(entity, pos, axis)
+                    && SpawnAnim.plays(entity.getFormingTotal(), entity.getFormingRemaining())) {
+                renderSpawn(entity, partialTick, poseStack, buffers);
+            }
+            return;
+        }
         if (!shouldDrawVortex(level, pos)) {
             return;
         }
         float iris = ScanRevealClient.irisProgress(level, pos, partialTick);
         renderWindow(level, pos, state, axis, poseStack.last(), buffers, iris, iris < 0.999F, true, partialTick);
+    }
+
+    private static boolean isSpawnHost(WormholeBlockEntity entity, BlockPos pos, Direction.Axis axis) {
+        if (entity.isCenter()) {
+            return true;
+        }
+        Bounds bounds = portalBounds(entity.getLevel(), pos, axis);
+        int width = bounds.maxAcross - bounds.minAcross + 3;
+        int standAcross = bounds.minAcross - 1 + width / 2;
+        int standY = bounds.minY;
+        int across = axis == Direction.Axis.X ? pos.getZ() : pos.getX();
+        return across == standAcross && pos.getY() == standY;
+    }
+
+    private static void renderSpawn(WormholeBlockEntity entity, float partialTick, PoseStack poseStack,
+                                    MultiBufferSource buffers) {
+        if (!SpawnAnim.plays(entity.getFormingTotal(), entity.getFormingRemaining())) {
+            return;
+        }
+        Level level = entity.getLevel();
+        BlockPos pos = entity.getBlockPos();
+        BlockState state = entity.getBlockState();
+        Direction.Axis axis = state.getValue(WormholeBlock.AXIS);
+        Bounds bounds = portalBounds(level, pos, axis);
+        int innerW = bounds.maxAcross - bounds.minAcross + 1;
+        int innerH = bounds.maxY - bounds.minY + 1;
+        int width = innerW + 2;
+        int height = innerH + 2;
+        BlockPos origin = axis == Direction.Axis.X
+                ? new BlockPos(pos.getX(), bounds.minY - 1, bounds.minAcross - 1)
+                : new BlockPos(bounds.minAcross - 1, bounds.minY - 1, pos.getZ());
+        float elapsed = SpawnAnim.elapsed(entity.getFormingTotal(), entity.getFormingRemaining()) + partialTick;
+        int portalRgb = state.getValue(WormholeBlock.COLOR).tint(state.getValue(WormholeBlock.DECAY));
+        WormholeSpawnRenderer.render(poseStack.last(), buffers, axis, pos, origin, width, height, elapsed, portalRgb);
     }
 
     /**
@@ -92,7 +138,8 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
                     continue;
                 }
                 BlockState state = level.getBlockState(pos);
-                if (!(state.getBlock() instanceof WormholeBlock) || state.getValue(WormholeBlock.FRAME)) {
+                if (!(state.getBlock() instanceof WormholeBlock) || state.getValue(WormholeBlock.FRAME)
+                        || state.getValue(WormholeBlock.FORMING)) {
                     continue;
                 }
                 boolean border = isBorder(level, pos, axis);
@@ -188,8 +235,8 @@ public class WormholePulseRenderer implements BlockEntityRenderer<WormholeBlockE
                                   Bounds bounds, float time, float depth, int portalRgb, float iris) {
         int width = bounds.maxAcross - bounds.minAcross + 1;
         int height = bounds.maxY - bounds.minY + 1;
-        int sx = WormholeStyle.vortexSubdiv(width);
-        int sy = WormholeStyle.vortexSubdiv(height);
+        int sx = iris > 0.001F && iris < 0.999F ? WormholeStyle.irisSubdiv(width) : WormholeStyle.vortexSubdiv(width);
+        int sy = iris > 0.001F && iris < 0.999F ? WormholeStyle.irisSubdiv(height) : WormholeStyle.vortexSubdiv(height);
         float hole = iris <= 0.0F ? -1.0F : iris * (WormholeStyle.vortexMaxRadius(width, height) + 0.08F);
         float centerAcross = (bounds.minAcross + bounds.maxAcross + 1) * 0.5F;
         float centerUp = (bounds.minY + bounds.maxY + 1) * 0.5F;

@@ -4,6 +4,7 @@ import com.eveportalnether.Config;
 import com.eveportalnether.world.PortalColor;
 import com.eveportalnether.world.PortalShape;
 import com.eveportalnether.world.PortalTier;
+import com.eveportalnether.world.SpawnAnim;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
@@ -31,6 +32,7 @@ public class PortalPair {
     private int ticksRemaining;
     private int jumpsRemaining;
     private int formingTicks;
+    private int formingTotal;
     private PortalColor color;
     private int code;
 
@@ -169,6 +171,22 @@ public class PortalPair {
 
     public void setFormingTicks(int formingTicks) {
         this.formingTicks = Math.max(0, formingTicks);
+        if (this.formingTicks == 0) {
+            this.formingTotal = 0;
+        }
+    }
+
+    public int getFormingTotal() {
+        return formingTotal;
+    }
+
+    /**
+     * One-shot spawn clock. {@code total} is kept so a chunk reload / late join can
+     * resume {@code elapsed = total - remaining} instead of replaying from lightning.
+     */
+    public void setForming(int remaining, int total) {
+        this.formingTicks = Math.max(0, remaining);
+        this.formingTotal = this.formingTicks == 0 ? 0 : Math.max(this.formingTicks, Math.max(0, total));
     }
 
     /**
@@ -214,6 +232,7 @@ public class PortalPair {
         tag.putInt("TicksRemaining", ticksRemaining);
         tag.putInt("JumpsRemaining", jumpsRemaining);
         tag.putInt("FormingTicks", formingTicks);
+        tag.putInt("FormingTotal", formingTotal);
         tag.putString("Color", color.getSerializedName());
         tag.putInt("Code", code);
         return tag;
@@ -235,7 +254,12 @@ public class PortalPair {
         int initialTicks = tag.contains("InitialTicks") ? tag.getInt("InitialTicks") : ticks;
         int initialJumps = tag.contains("InitialJumps") ? tag.getInt("InitialJumps") : jumps;
         PortalPair pair = new PortalPair(id, overworld, nether, axis, width, height, tier, initialTicks, initialJumps, ticks, jumps);
-        pair.setFormingTicks(tag.getInt("FormingTicks"));
+        int formingLeft = tag.getInt("FormingTicks");
+        int formingTotal = tag.contains("FormingTotal") ? tag.getInt("FormingTotal") : 0;
+        if (formingLeft > 0 && formingTotal <= 0) {
+            formingTotal = Math.max(formingLeft, SpawnAnim.DURATION_TICKS);
+        }
+        pair.setForming(formingLeft, formingTotal);
         pair.setColor(PortalColor.byName(tag.getString("Color"), tier.legacyColor()));
         if (tag.contains("Code")) {
             pair.setCode(tag.getInt("Code"));

@@ -2,6 +2,7 @@ package com.eveportalnether.world.data;
 
 import com.eveportalnether.Config;
 import com.eveportalnether.block.WormholeBlock;
+import com.eveportalnether.block.entity.WormholeBlockEntity;
 import com.eveportalnether.registry.ModBlocks;
 import com.eveportalnether.registry.ModSounds;
 import com.eveportalnether.EvePortalNether;
@@ -33,6 +34,7 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.saveddata.SavedData;
 import net.minecraft.world.phys.AABB;
@@ -248,8 +250,11 @@ public class PortalManager extends SavedData {
         int decay = pair.getDecay();
         PortalColor color = pair.getColor();
         BlockState standState = level.getBlockState(stand);
+        boolean forming = pair.isForming();
         if (!(standState.getBlock() instanceof WormholeBlock)
-                || (standState.getValue(WormholeBlock.DECAY) == decay && standState.getValue(WormholeBlock.COLOR) == color)) {
+                || (standState.getValue(WormholeBlock.DECAY) == decay
+                && standState.getValue(WormholeBlock.COLOR) == color
+                && (standState.getValue(WormholeBlock.FRAME) || standState.getValue(WormholeBlock.FORMING) == forming))) {
             return;
         }
         BlockPos origin = pair.getOrigin(level.dimension());
@@ -260,7 +265,7 @@ public class PortalManager extends SavedData {
                 if (state.getBlock() instanceof WormholeBlock) {
                     BlockState updated = state.setValue(WormholeBlock.COLOR, color);
                     if (!state.getValue(WormholeBlock.FRAME)) {
-                        updated = updated.setValue(WormholeBlock.DECAY, decay);
+                        updated = updated.setValue(WormholeBlock.DECAY, decay).setValue(WormholeBlock.FORMING, forming);
                     }
                     if (updated != state) {
                         level.setBlock(pos, updated, 2);
@@ -287,10 +292,11 @@ public class PortalManager extends SavedData {
     }
 
     private void tickForming(MinecraftServer server, PortalPair pair) {
-        int total = Math.max(1, Config.FORMING_TICKS.get());
         pair.setFormingTicks(pair.getFormingTicks() - 1);
+        int total = Math.max(1, pair.getFormingTotal());
         float progress = Math.min(1.0F, 1.0F - pair.getFormingTicks() / (float) total);
         for (ServerLevel level : sides(server)) {
+            applyForming(level, pair);
             if (pair.isForming()) {
                 PortalEffects.formingTick(level, pair, progress);
             } else {
@@ -300,6 +306,17 @@ public class PortalManager extends SavedData {
         }
         if (!pair.isForming() || pair.getFormingTicks() % 20 == 0) {
             setDirty();
+        }
+    }
+
+    private static void applyForming(ServerLevel level, PortalPair pair) {
+        BlockPos stand = pair.getStandPos(level.dimension());
+        if (!level.hasChunkAt(stand)) {
+            return;
+        }
+        BlockEntity be = level.getBlockEntity(stand);
+        if (be instanceof WormholeBlockEntity wormhole) {
+            wormhole.setForming(pair.getFormingTotal(), pair.getFormingTicks());
         }
     }
 

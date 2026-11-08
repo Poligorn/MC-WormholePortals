@@ -84,6 +84,7 @@ public final class DetectorDecryption {
         SESSIONS.put(player.getUUID(), new Session(level.dimension(), pos, pair, duration, level.getRandom()));
         ModNetwork.sendScan(player, PortalScanPayload.of(pair, duration));
         level.playSound(null, pos, ModSounds.DETECTOR_USE.get(), SoundSource.PLAYERS, 0.5F, 0.7F);
+        ScanReveal.preload(player, pair);
     }
 
     public static void tick(MinecraftServer server) {
@@ -96,6 +97,7 @@ public final class DetectorDecryption {
             Session session = entry.getValue();
             ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
             if (player == null) {
+                ScanReveal.stop(server, entry.getKey());
                 it.remove();
                 continue;
             }
@@ -105,6 +107,7 @@ public final class DetectorDecryption {
             if (pair == null || hand == null || level.dimension() != session.dimension
                     || player.distanceToSqr(session.pos.getCenter()) > MAX_DISTANCE_SQ) {
                 it.remove();
+                ScanReveal.stop(server, player.getUUID());
                 ModNetwork.sendScanLost(player);
                 player.displayClientMessage(Component.translatable("eveportalnether.detector.lost").withStyle(ChatFormatting.RED), true);
                 level.playSound(null, player.blockPosition(), ModSounds.RADAR_EMPTY.get(), SoundSource.PLAYERS, 0.5F, 1.3F);

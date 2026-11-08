@@ -4,18 +4,31 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 
 /**
- * Side-agnostic iris clock. Opaque until the destination is ready; once the clock
- * starts, a one-tick dest flicker must not rewind the 2s ease.
+ * Side-agnostic iris clock. Opaque until the destination is ready. Ready-time
+ * (not wall time) drives the 2s ease: an unready dest covers with the vortex
+ * without skipping the rest of the open, so dest cannot pop in at iris=1.
+ * A flicker after the ease has started covers without rewinding or jumping.
  */
 public final class ScanRevealIris {
+    private float openAge = -1.0F;
+    private float lastNow = Float.NaN;
     private long clockStart = -1L;
+    private boolean wasReady;
 
     public void reset() {
+        openAge = -1.0F;
+        lastNow = Float.NaN;
         clockStart = -1L;
+        wasReady = false;
     }
 
+    /** First dest-ready sample, or {@code -1} if the 2s open has not started. */
     public long clockStart() {
         return clockStart;
+    }
+
+    public float openAge() {
+        return openAge;
     }
 
     /**
@@ -24,21 +37,29 @@ public final class ScanRevealIris {
      */
     public float sample(boolean revealing, boolean destinationReady, float now, long expireAt) {
         if (!revealing || now >= expireAt) {
-            clockStart = -1L;
+            reset();
+            lastNow = now;
             return 0.0F;
         }
         if (!destinationReady) {
+            wasReady = false;
+            lastNow = now;
             return 0.0F;
         }
-        if (clockStart < 0L) {
-            clockStart = (long) now;
+        if (openAge < 0.0F) {
+            openAge = 0.0F;
+            clockStart = (long) Math.floor(now);
+        } else if (wasReady && !Float.isNaN(lastNow)) {
+            openAge += Math.max(0.0F, now - lastNow);
         }
+        wasReady = true;
+        lastNow = now;
+
         int trans = ScanReveal.TRANSITION_TICKS;
         float remaining = expireAt - now;
         if (remaining <= trans) {
             return ScanReveal.ease(remaining / trans);
         }
-        float openAge = now - clockStart;
         if (openAge < trans) {
             return ScanReveal.ease(openAge / trans);
         }

@@ -193,10 +193,11 @@ public final class PortalSpawner {
             return null;
         }
         PortalColor color = PortalColor.random(overworld.getRandom());
-        if (!wormhole.placeStructure(overworld, overworldOrigin, axis, width, height, color, force)) {
+        int forming = SpawnAnim.formingDuration(Config.FORMING_TICKS.get());
+        if (!wormhole.placeStructure(overworld, overworldOrigin, axis, width, height, color, force, forming > 0)) {
             return null;
         }
-        if (!wormhole.placeStructure(nether, netherOrigin, axis, width, height, color, force)) {
+        if (!wormhole.placeStructure(nether, netherOrigin, axis, width, height, color, force, forming > 0)) {
             wormhole.removeStructure(overworld, overworldOrigin, axis, width, height, null);
             return null;
         }
@@ -207,7 +208,7 @@ public final class PortalSpawner {
         PortalPair pair = new PortalPair(UUID.randomUUID(), overworldOrigin, netherOrigin, axis, width, height, tier, ticks, jumps);
         pair.setColor(color);
         pair.setCode(overworld.getRandom().nextInt(1000));
-        pair.setFormingTicks(Config.FORMING_TICKS.get());
+        pair.setForming(forming, forming);
         manager.addPair(pair);
 
         applyPairToCenter(overworld, pair.getStandPos(Level.OVERWORLD), pair);
@@ -230,6 +231,7 @@ public final class PortalSpawner {
             wormhole.setCenter(true);
             wormhole.setTicksRemaining(pair.getTicksRemaining());
             wormhole.setJumpsRemaining(pair.getJumpsRemaining());
+            wormhole.setForming(pair.getFormingTotal(), pair.getFormingTicks());
         }
     }
 

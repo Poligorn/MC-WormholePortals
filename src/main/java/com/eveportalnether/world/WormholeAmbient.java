@@ -20,7 +20,7 @@ public final class WormholeAmbient {
     /** Loop amplitude at the aperture; OpenAL still pans by world position. */
     public static final float LOOP_VOLUME = 0.45F;
     /** After this many ticks with only the dest center compiled, iris may open (avoid stuck opaque). */
-    public static final int DEST_CENTER_FALLBACK_TICKS = 100;
+    public static final int DEST_CENTER_FALLBACK_TICKS = 20;
     public static final int HEAR_DISTANCE_DEFAULT = 128;
     public static final int HEAR_DISTANCE_MIN = 100;
     public static final int HEAR_DISTANCE_MAX = 150;

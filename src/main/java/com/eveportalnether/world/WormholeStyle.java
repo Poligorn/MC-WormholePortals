@@ -40,6 +40,11 @@ public final class WormholeStyle {
     /** Aim for about this many texels across a typical window so the funnel stays pixel-art. */
     public static final int VORTEX_TEXEL_TARGET = 48;
     public static final int VORTEX_SUBDIV_MAX = 16;
+    /**
+     * During the 2s iris the hole is a circle through skipped quads. One texel per block
+     * on a 50×50 window makes a jagged rim; finer subdiv only while the hole is moving.
+     */
+    public static final int IRIS_SUBDIV_MAX = 24;
 
     private WormholeStyle() {
     }
@@ -54,6 +59,11 @@ public final class WormholeStyle {
 
     public static int vortexSubdiv(int spanBlocks) {
         return Mth.clamp(Math.round(VORTEX_TEXEL_TARGET / (float) Math.max(1, spanBlocks)), 1, VORTEX_SUBDIV_MAX);
+    }
+
+    public static int irisSubdiv(int spanBlocks) {
+        int base = vortexSubdiv(spanBlocks);
+        return Mth.clamp(Math.max(base * 4, 8), 1, IRIS_SUBDIV_MAX);
     }
 
     public static float vortexMaxRadius(int widthBlocks, int heightBlocks) {

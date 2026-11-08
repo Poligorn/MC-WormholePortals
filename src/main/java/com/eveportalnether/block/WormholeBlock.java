@@ -55,6 +55,7 @@ import org.joml.Vector3f;
 
 public class WormholeBlock extends BaseEntityBlock {
     public static final BooleanProperty FRAME = BooleanProperty.create("frame");
+    public static final BooleanProperty FORMING = BooleanProperty.create("forming");
     public static final EnumProperty<Direction.Axis> AXIS = BlockStateProperties.HORIZONTAL_AXIS;
     public static final EnumProperty<PortalColor> COLOR = EnumProperty.create("color", PortalColor.class);
     public static final IntegerProperty DECAY = IntegerProperty.create("decay", 0, 3);
@@ -66,6 +67,7 @@ public class WormholeBlock extends BaseEntityBlock {
         super(properties);
         this.registerDefaultState(this.stateDefinition.any()
                 .setValue(FRAME, false)
+                .setValue(FORMING, false)
                 .setValue(AXIS, Direction.Axis.Z)
                 .setValue(COLOR, PortalColor.BLUE)
                 .setValue(DECAY, 0));
@@ -73,7 +75,7 @@ public class WormholeBlock extends BaseEntityBlock {
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(FRAME, AXIS, COLOR, DECAY);
+        builder.add(FRAME, FORMING, AXIS, COLOR, DECAY);
     }
 
     public static int lightLevel(BlockState state) {
@@ -101,6 +103,11 @@ public class WormholeBlock extends BaseEntityBlock {
     }
 
     public boolean placeStructure(Level level, BlockPos origin, Direction.Axis axis, int width, int height, PortalColor color, boolean force) {
+        return placeStructure(level, origin, axis, width, height, color, force, false);
+    }
+
+    public boolean placeStructure(Level level, BlockPos origin, Direction.Axis axis, int width, int height,
+                                  PortalColor color, boolean force, boolean forming) {
         if (!force && !PortalShape.isVolumeReplaceable(level, origin, axis, width, height)) {
             return false;
         }
@@ -111,7 +118,7 @@ public class WormholeBlock extends BaseEntityBlock {
             for (int up = 0; up < height; up++) {
                 BlockPos pos = PortalShape.offset(origin, across, up, axis);
                 boolean frame = PortalShape.isFrame(across, up, width, height);
-                level.setBlock(pos, base.setValue(FRAME, frame), 3);
+                level.setBlock(pos, base.setValue(FRAME, frame).setValue(FORMING, forming && !frame), 3);
                 if (pos.equals(stand)) {
                     BlockEntity be = level.getBlockEntity(pos);
                     if (be instanceof WormholeBlockEntity wormhole) {
@@ -189,7 +196,7 @@ public class WormholeBlock extends BaseEntityBlock {
 
     @Override
     public void animateTick(BlockState state, Level level, BlockPos pos, RandomSource random) {
-        if (state.getValue(FRAME)) {
+        if (state.getValue(FRAME) || state.getValue(FORMING)) {
             return;
         }
         if (shouldSkipAmbient(level, state, pos, random)) {

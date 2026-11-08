@@ -65,6 +65,10 @@ public final class ImmersivePortalsCompat {
     }
 
     static boolean spawnReveal(ServerPlayer player, PortalPair pair) {
+        Spawned existing = SPAWNED.get(player.getUUID());
+        if (existing != null && pair.getId().equals(existing.pairId) && !existing.entities.isEmpty()) {
+            return true;
+        }
         despawnReveal(player.server, player.getUUID());
         ServerLevel overworld = player.server.getLevel(Level.OVERWORLD);
         ServerLevel nether = player.server.getLevel(Level.NETHER);
@@ -83,6 +87,7 @@ public final class ImmersivePortalsCompat {
 
         Spawned spawned = new Spawned();
         spawned.playerHint = player.getUUID();
+        spawned.pairId = pair.getId();
         // Register before addFreshEntity so EntityJoinLevelEvent does not treat these as orphans.
         SPAWNED.put(player.getUUID(), spawned);
         SPAWNING.set(Boolean.TRUE);
@@ -225,6 +230,7 @@ public final class ImmersivePortalsCompat {
         final List<TrackedEntity> entities = new ArrayList<>();
         final List<TrackedLoader> loaders = new ArrayList<>();
         UUID playerHint;
+        UUID pairId;
     }
 
     private record TrackedEntity(UUID id, ResourceKey<Level> dimension) {

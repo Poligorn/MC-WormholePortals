@@ -108,7 +108,16 @@ public final class PortalEffects {
         }
         Vec3 center = center(level, pair);
         level.playSound(null, center.x, center.y, center.z, ModSounds.PORTAL_CHARGE.get(), SoundSource.BLOCKS, 3.0F, 0.5F);
+        level.playSound(null, center.x, center.y, center.z, SoundEvents.LIGHTNING_BOLT_THUNDER, SoundSource.WEATHER, 4.0F, 1.2F);
         level.playSound(null, center.x, center.y, center.z, SoundEvents.BEACON_AMBIENT, SoundSource.BLOCKS, 3.0F, 0.5F);
+        if (Config.OPENING_LIGHTNING.get()) {
+            LightningBolt bolt = EntityType.LIGHTNING_BOLT.create(level);
+            if (bolt != null) {
+                bolt.moveTo(center);
+                bolt.setVisualOnly(true);
+                level.addFreshEntity(bolt);
+            }
+        }
         shake(level, center, 32.0, 0.4F, 30);
     }
 
@@ -116,28 +125,19 @@ public final class PortalEffects {
         if (!isLoaded(level, pair)) {
             return;
         }
-        RandomSource random = level.getRandom();
         Vec3 center = center(level, pair);
-        double radius = 2.5 + pair.getWidth() * 0.6;
-
-        converge(level, ParticleTypes.PORTAL, center, 6 + (int) (progress * 14), radius, random);
-        double angle = level.getGameTime() * 0.35;
-        for (int arm = 0; arm < 3; arm++) {
-            double a = angle + arm * (Math.PI * 2 / 3);
-            spiralMote(level, pair, center, radius * (1.0 - progress * 0.5), a, pair.getColor().rgb());
-        }
-        if (random.nextFloat() < 0.15F + progress * 0.5F) {
-            level.sendParticles(ParticleTypes.ELECTRIC_SPARK, center.x, center.y, center.z, 4,
-                    pair.getWidth() * 0.35, pair.getHeight() * 0.35, pair.getWidth() * 0.35, 0.3);
-        }
-
         int formingLeft = pair.getFormingTicks();
-        if (formingLeft % 10 == 0) {
-            level.playSound(null, center.x, center.y, center.z, SoundEvents.BEACON_POWER_SELECT, SoundSource.BLOCKS,
-                    1.5F + progress * 1.5F, 0.5F + progress * 1.5F);
+        int elapsed = SpawnAnim.elapsed(pair.getFormingTotal(), formingLeft);
+        if (elapsed < SpawnAnim.LIGHTNING_TICKS && level.getRandom().nextFloat() < 0.4F) {
+            level.sendParticles(ParticleTypes.ELECTRIC_SPARK, center.x, center.y, center.z, 3,
+                    0.15, pair.getHeight() * 0.25, 0.15, 0.2);
         }
-        if (formingLeft % 20 == 0 && progress > 0.4F) {
-            shake(level, center, 24.0, 0.2F + progress * 0.5F, 20);
+        if (formingLeft % 20 == 0) {
+            level.playSound(null, center.x, center.y, center.z, SoundEvents.BEACON_POWER_SELECT, SoundSource.BLOCKS,
+                    1.0F + progress, 0.6F + progress);
+        }
+        if (formingLeft % 20 == 0 && progress > 0.5F) {
+            shake(level, center, 24.0, 0.15F + progress * 0.35F, 16);
         }
     }
 
@@ -148,15 +148,6 @@ public final class PortalEffects {
         RandomSource random = level.getRandom();
         Vec3 center = center(level, pair);
         BlockPos stand = pair.getStandPos(level.dimension());
-
-        if (Config.OPENING_LIGHTNING.get()) {
-            LightningBolt bolt = EntityType.LIGHTNING_BOLT.create(level);
-            if (bolt != null) {
-                bolt.moveTo(Vec3.atBottomCenterOf(stand));
-                bolt.setVisualOnly(true);
-                level.addFreshEntity(bolt);
-            }
-        }
 
         level.playSound(null, center.x, center.y, center.z, ModSounds.PORTAL_OPEN.get(), SoundSource.BLOCKS, 4.0F, 1.0F);
         level.playSound(null, center.x, center.y, center.z, SoundEvents.GENERIC_EXPLODE.value(), SoundSource.BLOCKS, 2.0F, 0.6F);

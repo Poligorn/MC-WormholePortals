@@ -18,6 +18,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * Per-player through-view window after a successful detector scan. Duration is the
  * live destination view <em>after</em> decrypt completes, not the decrypt itself.
  * One session per player; a later successful scan replaces the previous one.
+ * <p>
+ * Dest chunks are preloaded when decrypt <em>starts</em> so they can be compiled by
+ * COMPLETE. {@link #start} must not despawn a preload for the same pair — that was
+ * wiping the dest renderer and leaving a fully opaque vortex after ГОТОВО.
  */
 public final class ScanReveal {
     /** 60 seconds at 20 TPS, including the 2s open and 2s close irises. */
@@ -35,21 +39,54 @@ public final class ScanReveal {
     private ScanReveal() {
     }
 
-    public static void start(ServerPlayer player, PortalPair pair) {
-        stop(player.server, player.getUUID());
+    /**
+     * Keep an existing IP spawn when the new scan is the same pair. Despawn+respawn
+     * on COMPLETE dropped compiled dest sections.
+     */
+    public static boolean shouldKeepSpawn(UUID existingPair, UUID incomingPair, boolean revealing) {
+        return existingPair != null && existingPair.equals(incomingPair) && revealing;
+    }
+
+    public static void preload(ServerPlayer player, PortalPair pair) {
         if (!ImmersivePortalsHook.available()) {
             return;
         }
+        Session existing = SESSIONS.get(player.getUUID());
+        if (existing != null && shouldKeepSpawn(existing.pairId, pair.getId(), true)) {
+            SESSIONS.put(player.getUUID(), new Session(pair.getId(), Long.MAX_VALUE / 4, true));
+            return;
+        }
+        stop(player.server, player.getUUID());
         if (!ImmersivePortalsHook.spawnReveal(player, pair)) {
-            EvePortalNether.LOGGER.warn("Scan reveal spawn failed for {} at {}; vortex stays opaque",
+            EvePortalNether.LOGGER.warn("Scan reveal preload failed for {} at {}; dest will compile after COMPLETE if at all",
                     player.getGameProfile().getName(), pair.getOverworldOrigin().toShortString());
             return;
         }
+        SESSIONS.put(player.getUUID(), new Session(pair.getId(), Long.MAX_VALUE / 4, true));
+        EvePortalNether.LOGGER.info("Scan reveal preload for {} at {}",
+                player.getGameProfile().getName(), pair.getOverworldOrigin().toShortString());
+    }
+
+    public static void start(ServerPlayer player, PortalPair pair) {
+        if (!ImmersivePortalsHook.available()) {
+            return;
+        }
+        Session existing = SESSIONS.get(player.getUUID());
+        boolean keep = existing != null && shouldKeepSpawn(existing.pairId, pair.getId(), true);
+        if (!keep) {
+            stop(player.server, player.getUUID());
+            if (!ImmersivePortalsHook.spawnReveal(player, pair)) {
+                EvePortalNether.LOGGER.warn("Scan reveal spawn failed for {} at {}; vortex stays opaque",
+                        player.getGameProfile().getName(), pair.getOverworldOrigin().toShortString());
+                return;
+            }
+        }
         long expireAt = player.server.overworld().getGameTime() + DURATION_TICKS;
-        SESSIONS.put(player.getUUID(), new Session(pair.getId(), expireAt));
+        SESSIONS.put(player.getUUID(), new Session(pair.getId(), expireAt, false));
         ModNetwork.sendReveal(player, ScanRevealPayload.of(pair, DURATION_TICKS));
-        EvePortalNether.LOGGER.info("Scan reveal started for {} ({} {}x{}, {} ticks)",
-                player.getGameProfile().getName(), pair.getSignature(), pair.getWidth(), pair.getHeight(), DURATION_TICKS);
+        EvePortalNether.LOGGER.info("Scan reveal started for {} ({} {}x{}, {} ticks, keepSpawn={})",
+                player.getGameProfile().getName(), pair.getSignature(), pair.getWidth(), pair.getHeight(),
+                DURATION_TICKS, keep);
     }
 
     public static void tick(MinecraftServer server) {
@@ -59,7 +96,7 @@ public final class ScanReveal {
         long now = server.overworld().getGameTime();
         List<UUID> expired = new ArrayList<>();
         for (Map.Entry<UUID, Session> entry : SESSIONS.entrySet()) {
-            if (now >= entry.getValue().expireAt) {
+            if (!entry.getValue().preload && now >= entry.getValue().expireAt) {
                 expired.add(entry.getKey());
             }
         }
@@ -94,11 +131,11 @@ public final class ScanReveal {
             return;
         }
         ServerPlayer player = server.getPlayerList().getPlayer(playerId);
-        if (player != null) {
+        if (player != null && !removed.preload) {
             ModNetwork.sendReveal(player, ScanRevealPayload.clear());
         }
     }
 
-    private record Session(UUID pairId, long expireAt) {
+    private record Session(UUID pairId, long expireAt, boolean preload) {
     }
 }
