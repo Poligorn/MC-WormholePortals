@@ -210,6 +210,11 @@ public final class PortalSpawner {
         pair.setCode(overworld.getRandom().nextInt(1000));
         pair.setForming(forming, forming);
         manager.addPair(pair);
+        PortalShape.OuterRange wr = PortalShape.widthRange(tier);
+        PortalShape.OuterRange hr = PortalShape.heightRange(tier);
+        EvePortalNether.LOGGER.info("Rolled {} portal {}x{} (class width {}–{}, height {}–{}{})",
+                tier.getSerializedName(), width, height, wr.min(), wr.max(), hr.min(), hr.max(),
+                wr.classFallback() || hr.classFallback() ? "; global spawn min/max was ignored for this class" : "");
 
         applyPairToCenter(overworld, pair.getStandPos(Level.OVERWORLD), pair);
         applyPairToCenter(nether, pair.getStandPos(Level.NETHER), pair);

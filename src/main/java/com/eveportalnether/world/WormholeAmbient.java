@@ -4,17 +4,23 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 
 /**
- * Ambient drone for a live wormhole. The 0.6 particle budget skip also starved
- * {@code PORTAL_AMBIENT} one-shots on anything larger than a vanilla-sized window,
- * which is why the hum disappeared. One looping host per window restores it.
+ * Ambient drone for a live wormhole. One looping host per window (min-across,
+ * min-Y interior). The audible position is the window centre, not that tile.
  * <p>
- * Vanilla {@code SoundEngine} feeds OpenAL {@code AL_LINEAR_DISTANCE} with
- * {@code max(volume, 1) * Sound.getAttenuationDistance()}. The vanilla
- * {@code block.portal.ambient} file defaults to 16, so gain is 0 at 16 blocks.
- * {@code portal.hum} is a raw file sound (not that event) so the 16-block value
- * is not inherited. Falloff is applied in {@link #loopGain}; OpenAL LINEAR is
- * given a 256-block cap so it cannot silence the loop inside the configured
- * 100–150 hear range. Spatial panning stays on ({@code relative=false}).
+ * Alpha.2 still sounded "only nearby" for two stacked reasons, not a missing
+ * config number:
+ * <ol>
+ *   <li>{@code SoundEngine} LINEAR uses {@code max(volume,1)*Sound.attenuation}
+ *       as the OpenAL max distance. Quadratic {@link #loopGain} then multiplied
+ *       that again, so 100 blocks was ~0.015 even with a 256 file range.</li>
+ *   <li>The gain curve itself was {@code (1-t)²} from 8→128, already ~0.05 at
+ *       100 blocks before OpenAL. Search at 100–150 needs a linear fade that
+ *       actually reaches the configured zero, not a volume bump.</li>
+ * </ol>
+ * The instance now uses {@code Attenuation.NONE} with {@code relative=false}:
+ * OpenAL pans in the world, distance is only {@link #loopGain}. Block-entity
+ * ticks (hence starting the loop) still require the chunk to be loaded;
+ * that is a chunk-load limit, not a substitute for hear distance.
  */
 public final class WormholeAmbient {
     /** Loop amplitude at the aperture; OpenAL still pans by world position. */
@@ -24,12 +30,12 @@ public final class WormholeAmbient {
     public static final int HEAR_DISTANCE_DEFAULT = 128;
     public static final int HEAR_DISTANCE_MIN = 100;
     public static final int HEAR_DISTANCE_MAX = 150;
-    /** Full volume inside this radius; quadratic falloff from here to hear distance. */
+    /** Full volume inside this radius; linear falloff from here to hear distance. */
     public static final float NEAR_FULL_BLOCKS = 8.0F;
     /**
-     * {@code sounds.json} {@code attenuation_distance} for {@code portal.hum}.
-     * Must stay above {@link #HEAR_DISTANCE_MAX} so vanilla LINEAR cannot clamp
-     * before {@link #loopGain} reaches 0.
+     * {@code sounds.json} / SoundEvent range for {@code portal.hum}. Kept above
+     * {@link #HEAR_DISTANCE_MAX} so a LINEAR fallback cannot clamp at vanilla 16.
+     * The live loop does not use LINEAR.
      */
     public static final int SOUND_ATTENUATION_DISTANCE = 256;
 
@@ -38,7 +44,8 @@ public final class WormholeAmbient {
 
     /**
      * 1 at the aperture through {@link #NEAR_FULL_BLOCKS}, 0 at {@code hearDistance}.
-     * Quadratic so the last stretch is a smooth fade rather than a wall.
+     * Linear so 100 blocks is still in the search band; quadratic from alpha.2
+     * was already inaudible there.
      */
     public static float loopGain(double distance, int hearDistance) {
         if (distance < 0.0 || hearDistance <= 0 || distance >= hearDistance) {
@@ -52,7 +59,7 @@ public final class WormholeAmbient {
             return 1.0F;
         }
         float t = (float) ((distance - NEAR_FULL_BLOCKS) / span);
-        float gain = (1.0F - t) * (1.0F - t);
+        float gain = 1.0F - t;
         return gain < 0.0F ? 0.0F : Math.min(1.0F, gain);
     }
 
@@ -67,13 +74,40 @@ public final class WormholeAmbient {
     }
 
     /**
-     * Block entities only tick in loaded chunks, so the hear range cannot exceed
-     * the client's render distance even if the config asks for 150.
+     * Hear-distance used for gain. Render distance is <em>not</em> mixed in:
+     * shrinking the curve to {@code rd*16} made a 128 config silent at 96 when
+     * the client was on RD 6, which is not a mod fix.
      */
-    public static int effectiveHearDistance(int configured, int renderDistanceChunks) {
-        int hear = clampHearDistance(configured);
-        int loaded = Math.max(0, renderDistanceChunks) * 16;
-        return Math.min(hear, loaded);
+    public static int hearDistance(int configured) {
+        return clampHearDistance(configured);
+    }
+
+    /**
+     * How far client chunks (and therefore BE ticks that <em>start</em> the loop)
+     * extend. Documented limit only — do not use as the attenuation length.
+     */
+    public static int loadedChunkBlocks(int renderDistanceChunks) {
+        return Math.max(0, renderDistanceChunks) * 16;
+    }
+
+    /**
+     * Extra OpenAL LINEAR scale on top of {@link #loopGain}. {@code false} is the
+     * live path: the engine must not fade a second time.
+     */
+    public static float openAlLinearScale(double distance, float instanceVolume, int fileAttenuation,
+                                          boolean linear) {
+        if (!linear) {
+            return 1.0F;
+        }
+        float max = Math.max(instanceVolume, 1.0F) * Math.max(1, fileAttenuation);
+        if (distance >= max || max <= 0.0F) {
+            return 0.0F;
+        }
+        return (float) (1.0 - distance / max);
+    }
+
+    public static boolean usesOpenAlLinear() {
+        return false;
     }
 
     public static boolean sameDimension(ResourceKey<Level> host, ResourceKey<Level> viewer) {
@@ -82,7 +116,8 @@ public final class WormholeAmbient {
 
     /**
      * Exactly one interior tile per window: the min-across, min-Y interior cell.
-     * Neighbours toward -Y / -across are frame or outside.
+     * Neighbours toward -Y / -across are frame or outside. That tile owns the
+     * loop; the sample position is still the window centre.
      */
     public static boolean isLoopHost(boolean windowBelow, boolean windowMinusAcross) {
         return !windowBelow && !windowMinusAcross;

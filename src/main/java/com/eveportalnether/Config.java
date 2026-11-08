@@ -57,7 +57,7 @@ public class Config {
             .defineInRange("minPortalWidth", 4, 3, PORTAL_OUTER_SIZE_CAP);
 
     public static final ModConfigSpec.IntValue MAX_PORTAL_WIDTH = BUILDER
-            .comment("Absolute maximum outer frame width. Massive portals need 50 so airships can pass; existing configs that still say 7 should be raised")
+            .comment("Optional extra outer-width cap across classes. A leftover pre-0.6 value of 7 collapses every class to one size; that stale clamp is ignored for new portals (class ranges keep randomizing) and is logged, not rewritten")
             .defineInRange("maxPortalWidth", PORTAL_OUTER_SIZE_CAP, 3, PORTAL_OUTER_SIZE_CAP);
 
     public static final ModConfigSpec.IntValue MIN_PORTAL_HEIGHT = BUILDER
@@ -180,7 +180,7 @@ public class Config {
     }
 
     public static final ModConfigSpec.IntValue AMBIENT_HEAR_DISTANCE = BUILDER
-            .comment("How far the looping wormhole drone can be heard, in blocks. Vanilla block.portal.ambient is silent at 16 because OpenAL LINEAR uses that event's attenuation_distance; this mod's portal.hum file does not inherit that 16. Loaded-chunk tick range is min(this, renderDistance*16)")
+            .comment("How far the looping wormhole drone can be heard, in blocks (default 128, 100–150). Gain is linear from 8 to this value. OpenAL LINEAR is not used. Starting the loop still needs the portal chunk loaded (renderDistance*16); that is a chunk-load limit, not a reason to lower this")
             .defineInRange("ambientHearDistance", WormholeAmbient.HEAR_DISTANCE_DEFAULT,
                     WormholeAmbient.HEAR_DISTANCE_MIN, WormholeAmbient.HEAR_DISTANCE_MAX);
 

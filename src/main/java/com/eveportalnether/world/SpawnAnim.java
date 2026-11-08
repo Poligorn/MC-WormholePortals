@@ -11,11 +11,17 @@ package com.eveportalnether.world;
 public final class SpawnAnim {
     public static final int LIGHTNING_TICKS = 6;
     public static final int SEED_TICKS = 14;
-    public static final int CORNER_TICKS = 20;
+    /**
+     * One corner of UL→UR→LR→LL. Approved v4 used 20 ticks (80 total); playtest
+     * asked to divide only this assembly by 1.5 ({@code round(20/1.5)=13}).
+     */
+    public static final int CORNER_TICKS_V4 = 20;
+    public static final int CORNER_TICKS = 13;
+    public static final int ASSEMBLY_TICKS = CORNER_TICKS * 4;
     public static final int GROW_TICKS = 40;
     public static final int FILL_TICKS = 10;
     public static final int ASSEMBLY_START = LIGHTNING_TICKS + SEED_TICKS;
-    public static final int GROW_START = ASSEMBLY_START + CORNER_TICKS * 4;
+    public static final int GROW_START = ASSEMBLY_START + ASSEMBLY_TICKS;
     public static final int FILL_START = GROW_START + GROW_TICKS;
     public static final int DURATION_TICKS = FILL_START + FILL_TICKS;
     /** Half-size of the assembled rectangle before it grows, in blocks. */

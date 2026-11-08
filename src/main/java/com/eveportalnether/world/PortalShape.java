@@ -1,6 +1,7 @@
 package com.eveportalnether.world;
 
 import com.eveportalnether.Config;
+import com.eveportalnether.EvePortalNether;
 import com.eveportalnether.block.WormholeBlock;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -13,52 +14,94 @@ import net.minecraft.world.level.material.Fluids;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
 public final class PortalShape {
     private static final int LANDING_POCKET_WIDTH = 5;
     private static final int LANDING_POCKET_HEIGHT = 4;
+    private static final Set<String> SQUEEZE_WARNED = ConcurrentHashMap.newKeySet();
 
     private PortalShape() {
     }
 
+    /**
+     * Class range after intersecting optional global clamps. A stale pre-0.6
+     * {@code maxPortalWidth=7} (or any global that empties/collapses a class that
+     * actually has a span) is <em>not</em> applied: new portals keep the class
+     * random, saved geometry is untouched, and a one-shot warn is logged.
+     */
+    public record OuterRange(int min, int max, boolean classFallback, String note) {
+        public int span() {
+            return Math.max(1, max - min + 1);
+        }
+
+        public int roll(RandomSource random) {
+            return min + random.nextInt(span());
+        }
+    }
+
     public static int rollWidth(PortalTier tier, RandomSource random) {
-        return rollBetween(random, minWidth(tier), maxWidth(tier));
+        return widthRange(tier).roll(random);
     }
 
     public static int rollHeight(PortalTier tier, RandomSource random) {
-        return rollBetween(random, minHeight(tier), maxHeight(tier));
+        return heightRange(tier).roll(random);
+    }
+
+    public static OuterRange widthRange(PortalTier tier) {
+        int classMin = Math.min(tier.spec().minWidth.get(), tier.spec().maxWidth.get());
+        int classMax = Math.max(tier.spec().minWidth.get(), tier.spec().maxWidth.get());
+        return resolveOuterRange(tier.getSerializedName(), "width", classMin, classMax,
+                Config.MIN_PORTAL_WIDTH.get(), Config.MAX_PORTAL_WIDTH.get(), 3, Config.PORTAL_OUTER_SIZE_CAP);
+    }
+
+    public static OuterRange heightRange(PortalTier tier) {
+        int classMin = Math.min(tier.spec().minHeight.get(), tier.spec().maxHeight.get());
+        int classMax = Math.max(tier.spec().minHeight.get(), tier.spec().maxHeight.get());
+        return resolveOuterRange(tier.getSerializedName(), "height", classMin, classMax,
+                Config.MIN_PORTAL_HEIGHT.get(), Config.MAX_PORTAL_HEIGHT.get(), 4, Config.PORTAL_OUTER_SIZE_CAP);
     }
 
     public static int minWidth(PortalTier tier) {
-        return clampWidth(Math.min(tier.spec().minWidth.get(), tier.spec().maxWidth.get()));
+        return widthRange(tier).min();
     }
 
     public static int maxWidth(PortalTier tier) {
-        return clampWidth(Math.max(tier.spec().minWidth.get(), tier.spec().maxWidth.get()));
+        return widthRange(tier).max();
     }
 
     public static int minHeight(PortalTier tier) {
-        return clampHeight(Math.min(tier.spec().minHeight.get(), tier.spec().maxHeight.get()));
+        return heightRange(tier).min();
     }
 
     public static int maxHeight(PortalTier tier) {
-        return clampHeight(Math.max(tier.spec().minHeight.get(), tier.spec().maxHeight.get()));
+        return heightRange(tier).max();
     }
 
-    private static int clampWidth(int value) {
-        int lo = Math.max(3, Config.MIN_PORTAL_WIDTH.get());
-        int hi = Math.min(Config.PORTAL_OUTER_SIZE_CAP, Math.max(lo, Config.MAX_PORTAL_WIDTH.get()));
-        return Mth.clamp(value, lo, hi);
+    public static OuterRange resolveOuterRange(String className, String axis, int classMin, int classMax,
+                                              int globalMin, int globalMax, int floor, int cap) {
+        int cMin = Mth.clamp(Math.min(classMin, classMax), floor, cap);
+        int cMax = Mth.clamp(Math.max(classMin, classMax), floor, cap);
+        int gMin = Mth.clamp(Math.min(globalMin, globalMax), floor, cap);
+        int gMax = Mth.clamp(Math.max(globalMin, globalMax), floor, cap);
+        int lo = Math.max(cMin, gMin);
+        int hi = Math.min(cMax, gMax);
+        boolean classHasSpan = cMax > cMin;
+        if (lo > hi || (lo == hi && classHasSpan)) {
+            String note = "spawn." + (axis.equals("width") ? "maxPortalWidth/minPortalWidth" : "maxPortalHeight/minPortalHeight")
+                    + "=" + gMin + "–" + gMax + " collapses " + className + " " + axis + " " + cMin + "–" + cMax
+                    + "; using class range for new portals (saved sizes unchanged)";
+            warnSqueeze(className + ":" + axis, note);
+            return new OuterRange(cMin, cMax, true, note);
+        }
+        return new OuterRange(lo, hi, false, "");
     }
 
-    private static int clampHeight(int value) {
-        int lo = Math.max(4, Config.MIN_PORTAL_HEIGHT.get());
-        int hi = Math.min(Config.PORTAL_OUTER_SIZE_CAP, Math.max(lo, Config.MAX_PORTAL_HEIGHT.get()));
-        return Mth.clamp(value, lo, hi);
-    }
-
-    private static int rollBetween(RandomSource random, int min, int max) {
-        max = Math.max(min, max);
-        return min + random.nextInt(max - min + 1);
+    private static void warnSqueeze(String key, String note) {
+        if (SQUEEZE_WARNED.add(key)) {
+            EvePortalNether.LOGGER.warn(note);
+        }
     }
 
     public static BlockPos offset(BlockPos origin, int across, int up, Direction.Axis axis) {

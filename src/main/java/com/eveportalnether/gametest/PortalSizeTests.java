@@ -22,8 +22,11 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 import net.minecraft.gametest.framework.GameTest;
+import net.minecraft.util.RandomSource;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.RenderShape;
@@ -335,8 +338,26 @@ public final class PortalSizeTests {
             helper.fail("gain must be 0 at and beyond hear distance");
             return;
         }
-        assertEq(helper, WormholeAmbient.effectiveHearDistance(128, 12), 128, "rd 12 keeps 128");
-        assertEq(helper, WormholeAmbient.effectiveHearDistance(150, 6), 96, "rd 6 loads only 96");
+        float search = WormholeAmbient.loopGain(100.0, 128);
+        if (search < 0.20F) {
+            helper.fail("100 blocks must stay in the search band, not a dead quadratic; gain=" + search);
+            return;
+        }
+        if (WormholeAmbient.usesOpenAlLinear()) {
+            helper.fail("live loop must not use OpenAL LINEAR (double fade with loopGain)");
+            return;
+        }
+        float instance = WormholeAmbient.LOOP_VOLUME * search;
+        float none = instance * WormholeAmbient.openAlLinearScale(100.0, instance, 256, false);
+        float linear = instance * WormholeAmbient.openAlLinearScale(100.0, instance, 256, true);
+        if (none <= linear + 0.001F) {
+            helper.fail("NONE must not apply a second OpenAL fade; none=" + none + " linear=" + linear);
+            return;
+        }
+        assertEq(helper, WormholeAmbient.hearDistance(128), 128, "gain uses config 128");
+        assertEq(helper, WormholeAmbient.hearDistance(150), 150, "gain is not shrunk to render distance");
+        assertEq(helper, WormholeAmbient.loadedChunkBlocks(12), 192, "RD 12 loads 192");
+        assertEq(helper, WormholeAmbient.loadedChunkBlocks(6), 96, "RD 6 only starts the loop inside 96");
         if (WormholeAmbient.sameDimension(Level.OVERWORLD, Level.NETHER)) {
             helper.fail("overworld drone must not follow a nether viewer");
             return;
@@ -573,6 +594,93 @@ public final class PortalSizeTests {
         if (loaded.getFormingTicks() != 40 || loaded.getFormingTotal() != 150) {
             helper.fail("forming remaining/total must round-trip in NBT");
             return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void spawnAnimAssemblyIsFasterByOneAndAHalf(GameTestHelper helper) {
+        assertEq(helper, SpawnAnim.LIGHTNING_TICKS, 6, "lightning ticks");
+        assertEq(helper, SpawnAnim.SEED_TICKS, 14, "seed ticks");
+        assertEq(helper, SpawnAnim.CORNER_TICKS_V4, 20, "approved v4 corner ticks");
+        assertEq(helper, SpawnAnim.CORNER_TICKS, 13, "assembly ÷1.5 per corner");
+        assertEq(helper, SpawnAnim.ASSEMBLY_TICKS, 52, "four corners");
+        assertEq(helper, SpawnAnim.GROW_TICKS, 40, "grow unchanged");
+        assertEq(helper, SpawnAnim.FILL_TICKS, 10, "fill unchanged");
+        assertEq(helper, SpawnAnim.ASSEMBLY_START, 20, "lightning+seed unchanged");
+        assertEq(helper, SpawnAnim.GROW_START, 72, "grow starts earlier after faster assembly");
+        assertEq(helper, SpawnAnim.FILL_START, 112, "fill starts earlier");
+        assertEq(helper, SpawnAnim.DURATION_TICKS, 122, "lifecycle total follows assembly");
+        if (SpawnAnim.GROW_START >= SpawnAnim.ASSEMBLY_START + SpawnAnim.CORNER_TICKS_V4 * 4) {
+            helper.fail("grow must shift earlier; assembly was not shortened");
+            return;
+        }
+        if (SpawnAnim.phase(SpawnAnim.ASSEMBLY_START + SpawnAnim.CORNER_TICKS + 1) != SpawnAnim.Phase.UR) {
+            helper.fail("faster corners must still be sequential UL→UR");
+            return;
+        }
+        helper.succeed();
+    }
+
+    @GameTest(template = "empty")
+    public static void newPortalsRandomizeClassGeometry(GameTestHelper helper) {
+        PortalShape.OuterRange stale = PortalShape.resolveOuterRange("standard", "width", 8, 16, 4, 7, 3, 50);
+        if (!stale.classFallback() || stale.min() != 8 || stale.max() != 16) {
+            helper.fail("stale global 4–7 must not collapse standard 8–16, got " + stale);
+            return;
+        }
+        PortalShape.OuterRange height = PortalShape.resolveOuterRange("standard", "height", 8, 20, 5, 8, 4, 50);
+        if (!height.classFallback() || height.min() != 8 || height.max() != 20) {
+            helper.fail("stale global height 5–8 must not pin standard at 8, got " + height);
+            return;
+        }
+        PortalShape.OuterRange cap = PortalShape.resolveOuterRange("standard", "width", 8, 16, 4, 12, 3, 50);
+        if (cap.classFallback() || cap.min() != 8 || cap.max() != 12) {
+            helper.fail("intentional global cap 12 should keep an 8–12 span, got " + cap);
+            return;
+        }
+
+        int oldMaxW = Config.MAX_PORTAL_WIDTH.get();
+        int oldMaxH = Config.MAX_PORTAL_HEIGHT.get();
+        try {
+            Config.MAX_PORTAL_WIDTH.set(7);
+            Config.MAX_PORTAL_HEIGHT.set(8);
+            Set<String> geometries = new HashSet<>();
+            RandomSource random = RandomSource.create(42L);
+            for (int i = 0; i < 40; i++) {
+                int w = PortalShape.rollWidth(PortalTier.STANDARD, random);
+                int h = PortalShape.rollHeight(PortalTier.STANDARD, random);
+                PortalPair pair = new PortalPair(UUID.randomUUID(), new BlockPos(i, 64, 0), new BlockPos(i, 40, 0),
+                        Direction.Axis.Z, w, h, PortalTier.STANDARD, 6000, 8);
+                if (pair.getWidth() != w || pair.getHeight() != h) {
+                    helper.fail("constructed pair must keep rolled geometry " + w + "x" + h
+                            + " but stored " + pair.getWidth() + "x" + pair.getHeight());
+                    return;
+                }
+                if (w < 8 || w > 16 || h < 8 || h > 20) {
+                    helper.fail("standard roll escaped class bounds: " + w + "x" + h);
+                    return;
+                }
+                geometries.add(w + "x" + h);
+            }
+            if (geometries.size() < 8) {
+                helper.fail("standard command/world path must randomize; got " + geometries);
+                return;
+            }
+            random = RandomSource.create(7L);
+            Set<Integer> massiveW = new HashSet<>();
+            Set<Integer> unstableW = new HashSet<>();
+            for (int i = 0; i < 40; i++) {
+                massiveW.add(PortalShape.rollWidth(PortalTier.MASSIVE, random));
+                unstableW.add(PortalShape.rollWidth(PortalTier.UNSTABLE, random));
+            }
+            if (massiveW.size() < 5 || unstableW.size() < 3) {
+                helper.fail("class bounds must still roll: massive=" + massiveW + " unstable=" + unstableW);
+                return;
+            }
+        } finally {
+            Config.MAX_PORTAL_WIDTH.set(oldMaxW);
+            Config.MAX_PORTAL_HEIGHT.set(oldMaxH);
         }
         helper.succeed();
     }
