@@ -132,6 +132,19 @@ public final class DetectorDecryption {
                 if (pair.getTier() == PortalTier.MASSIVE) {
                     WormholeEvents.fire(player, WormholeEvents.DECRYPT_MASSIVE);
                 }
+                if (pair.isDemo()) {
+                    pair.beginDemoCollapse();
+                    PortalManager.get(level).setDirty();
+                    PortalManager.syncDecay(level, pair);
+                    player.displayClientMessage(Component.translatable("eveportalnether.portal.demo.unstable")
+                            .withStyle(ChatFormatting.RED, ChatFormatting.BOLD), true);
+                    for (ServerPlayer nearby : level.players()) {
+                        if (nearby != player && nearby.distanceToSqr(player) <= 24 * 24) {
+                            nearby.displayClientMessage(Component.translatable("eveportalnether.portal.demo.unstable")
+                                    .withStyle(ChatFormatting.RED, ChatFormatting.BOLD), true);
+                        }
+                    }
+                }
             }
         }
     }

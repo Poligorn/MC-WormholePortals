@@ -101,5 +101,10 @@
   "advancements.eveportalnether.last_entry.title": "Last Passenger",
   "advancements.eveportalnether.last_entry.description": "Take a wormhole's very last passage",
   "advancements.eveportalnether.all_colors.title": "Spectrum of the Void",
-  "advancements.eveportalnether.all_colors.description": "Travel through wormholes of all nine colours"
+  "advancements.eveportalnether.all_colors.description": "Travel through wormholes of all nine colours",
+  "eveportalnether.command.demo.success": "Training portal %2$s spawned for %1$s at %3$s. It has no Nether exit and will implode safely.",
+  "eveportalnether.command.demo.no_space": "No safe open space for a training portal (need a clear 4×5 window a few blocks ahead). Move to open ground and try again.",
+  "eveportalnether.command.demo.not_player": "Specify a player: /eveportal demo <player>",
+  "eveportalnether.portal.demo.no_transit": "This is a training wormhole — it does not lead to the Nether.",
+  "eveportalnether.portal.demo.unstable": "The portal is unstable — get back!"
 }

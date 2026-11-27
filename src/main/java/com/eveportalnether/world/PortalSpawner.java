@@ -18,6 +18,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
@@ -64,7 +65,7 @@ public final class PortalSpawner {
         if (anchors.isEmpty()) {
             return;
         }
-        if (manager.getPairs().size() >= effectiveCap(server.getPlayerCount())) {
+        if (manager.countNaturalPairs() >= effectiveCap(server.getPlayerCount())) {
             return;
         }
         if (RANDOM.nextDouble() >= Config.SPAWN_CHANCE_PER_CHECK.get()) {
@@ -280,6 +281,117 @@ public final class PortalSpawner {
             }
         }
         return null;
+    }
+
+
+    /**
+     * Training portal: a small unstable window in the player's dimension only.
+     * No Nether link, no Nether chunk loads, no block destruction.
+     */
+    @Nullable
+    public static PortalPair spawnDemo(ServerPlayer player) {
+        ServerLevel level = player.serverLevel();
+        PortalManager manager = PortalManager.get(level);
+
+        PortalPair existing = manager.findDemoOwnedBy(player.getUUID());
+        if (existing != null) {
+            manager.collapse(level.getServer(), existing);
+        }
+
+        Direction.Axis axis;
+        Vec3 look = player.getViewVector(1.0F);
+        Vec3 flat = new Vec3(look.x, 0, look.z);
+        flat = flat.lengthSqr() < 1.0E-4 ? Vec3.directionFromRotation(0, player.getYRot()) : flat.normalize();
+        axis = Math.abs(flat.x) > Math.abs(flat.z) ? Direction.Axis.X : Direction.Axis.Z;
+
+        int width = PortalShape.minWidth(PortalTier.UNSTABLE);
+        int height = PortalShape.minHeight(PortalTier.UNSTABLE);
+        BlockPos origin = findDemoOrigin(level, player, flat, axis, width, height);
+        if (origin == null) {
+            return null;
+        }
+
+        return placeDemo(level, manager, origin, axis, width, height, player.getUUID());
+    }
+
+    @Nullable
+    private static BlockPos findDemoOrigin(ServerLevel level, ServerPlayer player, Vec3 flat, Direction.Axis axis,
+                                          int width, int height) {
+        int[] distances = {5, 6, 7, 4, 8, 9, 3, 10};
+        int[] laterals = {0, 1, -1, 2, -2};
+        int[] yOffsets = {0, 1, -1, 2, -2};
+        AABB playerBox = player.getBoundingBox().inflate(0.2);
+        BlockPos feet = player.blockPosition();
+
+        for (int dist : distances) {
+            for (int lateral : laterals) {
+                for (int dy : yOffsets) {
+                    Vec3 side = new Vec3(-flat.z, 0, flat.x);
+                    Vec3 center = player.position().add(flat.scale(dist)).add(side.scale(lateral));
+                    BlockPos base = BlockPos.containing(center.x, feet.getY() + dy, center.z);
+                    if (base.getY() < level.getMinBuildHeight() + 1
+                            || base.getY() + height >= level.getMaxBuildHeight()) {
+                        continue;
+                    }
+                    BlockPos origin = axis == Direction.Axis.X
+                            ? base.offset(0, 0, -width / 2)
+                            : base.offset(-width / 2, 0, 0);
+                    if (!PortalShape.isVolumeReplaceable(level, origin, axis, width, height)) {
+                        continue;
+                    }
+                    AABB volume = demoVolume(origin, axis, width, height);
+                    if (volume.intersects(playerBox)) {
+                        continue;
+                    }
+                    return origin;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static AABB demoVolume(BlockPos origin, Direction.Axis axis, int width, int height) {
+        BlockPos far = PortalShape.offset(origin, width - 1, height - 1, axis);
+        int minX = Math.min(origin.getX(), far.getX());
+        int minY = Math.min(origin.getY(), far.getY());
+        int minZ = Math.min(origin.getZ(), far.getZ());
+        int maxX = Math.max(origin.getX(), far.getX()) + 1;
+        int maxY = Math.max(origin.getY(), far.getY()) + 1;
+        int maxZ = Math.max(origin.getZ(), far.getZ()) + 1;
+        return new AABB(minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    @Nullable
+    private static PortalPair placeDemo(ServerLevel level, PortalManager manager, BlockPos origin,
+                                       Direction.Axis axis, int width, int height, UUID ownerId) {
+        if (!(ModBlocks.WORMHOLE.get() instanceof WormholeBlock wormhole)) {
+            return null;
+        }
+        PortalColor color = PortalColor.random(level.getRandom());
+        if (!wormhole.placeStructure(level, origin, axis, width, height, color, false)) {
+            return null;
+        }
+
+        BlockPos overworldOrigin = level.dimension() == Level.NETHER ? BlockPos.ZERO : origin;
+        BlockPos netherOrigin = level.dimension() == Level.NETHER ? origin : BlockPos.ZERO;
+        PortalPair pair = new PortalPair(UUID.randomUUID(), overworldOrigin, netherOrigin, axis, width, height,
+                PortalTier.UNSTABLE, PortalPair.DEMO_LIFETIME_TICKS, 8);
+        pair.setColor(color);
+        pair.setCode(level.getRandom().nextInt(1000));
+        pair.setFormingTicks(Math.min(40, Config.FORMING_TICKS.get()));
+        pair.setDemo(true);
+        pair.setOwnerId(ownerId);
+        pair.setDemoDimension(level.dimension());
+        manager.addPair(pair);
+
+        applyPairToCenter(level, pair.getStandPos(level.dimension()), pair);
+        PortalManager.syncDecay(level, pair);
+        if (pair.isForming()) {
+            PortalEffects.formingStarted(level, pair);
+        } else {
+            PortalEffects.opened(level, pair);
+        }
+        return pair;
     }
 
     @Nullable

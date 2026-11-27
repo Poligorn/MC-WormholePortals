@@ -10,11 +10,11 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.level.Level;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
@@ -48,6 +48,10 @@ public class ModCommands {
                         .executes(context -> skipCommand(context.getSource())))
                 .then(Commands.literal("collapse")
                         .executes(context -> stageCommand(context.getSource(), PortalPair.DECAY_DYING)))
+                .then(Commands.literal("demo")
+                        .executes(context -> demoCommand(context.getSource(), null))
+                        .then(Commands.argument("player", EntityArgument.player())
+                                .executes(context -> demoCommand(context.getSource(), EntityArgument.getPlayer(context, "player")))))
         );
     }
 
@@ -104,14 +108,39 @@ public class ModCommands {
             default -> pair.setTicksRemaining(warning + 1);
         }
         manager.setDirty();
-        for (ServerLevel side : new ServerLevel[]{level.getServer().getLevel(Level.OVERWORLD), level.getServer().getLevel(Level.NETHER)}) {
-            if (side != null) {
-                PortalManager.syncDecay(side, pair);
-            }
+        for (ServerLevel side : PortalManager.sides(level.getServer(), pair)) {
+            PortalManager.syncDecay(side, pair);
         }
 
         source.sendSuccess(() -> Component.literal("Portal " + pair.getSignature() + " -> " + STAGES[stage]
                 + " (" + pair.getTicksRemaining() + " ticks, " + pair.getJumpsRemaining() + " entries)"), true);
+        return 1;
+    }
+
+    private static int demoCommand(CommandSourceStack source, ServerPlayer target) {
+        if (target == null) {
+            if (!(source.getEntity() instanceof ServerPlayer player)) {
+                source.sendFailure(Component.translatable("eveportalnether.command.demo.not_player"));
+                return 0;
+            }
+            target = player;
+        }
+
+        PortalPair pair = PortalSpawner.spawnDemo(target);
+        if (pair == null) {
+            source.sendFailure(Component.translatable("eveportalnether.command.demo.no_space"));
+            return 0;
+        }
+
+        final ServerPlayer shown = target;
+        final PortalPair spawned = pair;
+        source.sendSuccess(() -> Component.translatable(
+                "eveportalnether.command.demo.success",
+                shown.getGameProfile().getName(),
+                spawned.getSignature(),
+                spawned.getOverworldOrigin().equals(net.minecraft.core.BlockPos.ZERO)
+                        ? spawned.getNetherOrigin().toShortString()
+                        : spawned.getOverworldOrigin().toShortString()), true);
         return 1;
     }
 

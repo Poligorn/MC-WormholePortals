@@ -101,5 +101,10 @@
   "advancements.eveportalnether.last_entry.title": "Последний пассажир",
   "advancements.eveportalnether.last_entry.description": "Воспользоваться самым последним проходом червоточины",
   "advancements.eveportalnether.all_colors.title": "Спектр пустоты",
-  "advancements.eveportalnether.all_colors.description": "Пройти через червоточины всех девяти цветов"
+  "advancements.eveportalnether.all_colors.description": "Пройти через червоточины всех девяти цветов",
+  "eveportalnether.command.demo.success": "Учебный портал %2$s создан для %1$s в %3$s. В Ад он не ведёт и схлопнется безопасно.",
+  "eveportalnether.command.demo.no_space": "Нет свободного места для учебного портала (нужно чистое окно 4×5 в нескольких блоках впереди). Отойдите на открытое место и попробуйте снова.",
+  "eveportalnether.command.demo.not_player": "Укажите игрока: /eveportal demo <игрок>",
+  "eveportalnether.portal.demo.no_transit": "Это учебная червоточина — в Ад она не ведёт.",
+  "eveportalnether.portal.demo.unstable": "Портал нестабилен — отойди!"
 }

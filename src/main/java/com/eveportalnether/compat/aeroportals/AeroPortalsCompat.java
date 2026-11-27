@@ -64,7 +64,7 @@ public final class AeroPortalsCompat {
             return;
         }
         PortalPair pair = findPair(event.srcLevel(), pairId);
-        if (pair == null || pair.isForming() || pair.isExpired()) {
+        if (pair == null || pair.isDemo() || pair.isForming() || pair.isExpired()) {
             PRIMARY_SUB_TO_PAIR.remove(primary);
             event.cancel("wormhole is not ready");
             return;

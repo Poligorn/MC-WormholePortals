@@ -115,6 +115,9 @@ public class PortalManager extends SavedData {
         PortalPair best = null;
         double bestDist = Double.MAX_VALUE;
         for (PortalPair pair : pairs) {
+            if (!pair.existsIn(dimension)) {
+                continue;
+            }
             double dist = pair.getStandPos(dimension).distSqr(pos);
             if (dist < bestDist) {
                 bestDist = dist;
@@ -124,10 +127,36 @@ public class PortalManager extends SavedData {
         return best;
     }
 
+    public int countNaturalPairs() {
+        int count = 0;
+        for (PortalPair pair : pairs) {
+            if (!pair.isDemo()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    @Nullable
+    public PortalPair findDemoOwnedBy(UUID ownerId) {
+        if (ownerId == null) {
+            return null;
+        }
+        for (PortalPair pair : pairs) {
+            if (pair.isDemo() && ownerId.equals(pair.getOwnerId())) {
+                return pair;
+            }
+        }
+        return null;
+    }
+
     public boolean isTooClose(int x, int z, int minDistance) {
         long minSq = (long) minDistance * minDistance;
         for (PortalPair pair : pairs) {
-            BlockPos other = pair.getOverworldOrigin();
+            if (!pair.existsIn(Level.OVERWORLD)) {
+                continue;
+            }
+            BlockPos other = pair.getOrigin(Level.OVERWORLD);
             long dx = other.getX() - x;
             long dz = other.getZ() - z;
             if (dx * dx + dz * dz < minSq) {
@@ -154,7 +183,7 @@ public class PortalManager extends SavedData {
                 warnLastEntry(server, pair);
             }
             if (!pair.isExpired() && time % 3 == 0) {
-                for (ServerLevel level : sides(server)) {
+                for (ServerLevel level : sides(server, pair)) {
                     PortalEffects.spiral(level, pair);
                 }
             }
@@ -173,6 +202,9 @@ public class PortalManager extends SavedData {
     }
 
     public boolean isVisibleToRadar(ServerLevel level, PortalPair pair) {
+        if (pair.isDemo() || !pair.existsIn(level.dimension())) {
+            return false;
+        }
         BlockPos origin = pair.getOrigin(level.dimension());
         if (!level.hasChunkAt(origin)) {
             return true;
@@ -183,7 +215,14 @@ public class PortalManager extends SavedData {
     public void discardGhosts(MinecraftServer server) {
         List<PortalPair> ghosts = new ArrayList<>();
         for (PortalPair pair : pairs) {
-            if (isGhostSide(server.getLevel(Level.OVERWORLD), pair) || isGhostSide(server.getLevel(Level.NETHER), pair)) {
+            boolean ghost = false;
+            for (ServerLevel level : sides(server, pair)) {
+                if (isGhostSide(level, pair)) {
+                    ghost = true;
+                    break;
+                }
+            }
+            if (ghost) {
                 ghosts.add(pair);
             }
         }
@@ -233,13 +272,16 @@ public class PortalManager extends SavedData {
 
     private void syncDecay(MinecraftServer server) {
         for (PortalPair pair : pairs) {
-            for (ServerLevel level : sides(server)) {
+            for (ServerLevel level : sides(server, pair)) {
                 syncDecay(level, pair);
             }
         }
     }
 
     public static void syncDecay(ServerLevel level, PortalPair pair) {
+        if (!pair.existsIn(level.dimension())) {
+            return;
+        }
         BlockPos stand = pair.getStandPos(level.dimension());
         if (!level.hasChunkAt(stand)) {
             return;
@@ -270,7 +312,7 @@ public class PortalManager extends SavedData {
     }
 
     private static void warnLastEntry(MinecraftServer server, PortalPair pair) {
-        for (ServerLevel level : sides(server)) {
+        for (ServerLevel level : sides(server, pair)) {
             if (!level.hasChunkAt(pair.getOrigin(level.dimension()))) {
                 continue;
             }
@@ -289,7 +331,7 @@ public class PortalManager extends SavedData {
         int total = Math.max(1, Config.FORMING_TICKS.get());
         pair.setFormingTicks(pair.getFormingTicks() - 1);
         float progress = Math.min(1.0F, 1.0F - pair.getFormingTicks() / (float) total);
-        for (ServerLevel level : sides(server)) {
+        for (ServerLevel level : sides(server, pair)) {
             if (pair.isForming()) {
                 PortalEffects.formingTick(level, pair, progress);
             } else {
@@ -303,9 +345,9 @@ public class PortalManager extends SavedData {
     }
 
     private static void playWarning(MinecraftServer server, PortalPair pair) {
-        int warning = Math.max(1, Config.WARNING_DURATION_TICKS.get());
+        int warning = Math.max(1, pair.getWarningWindow());
         float progress = 1.0F - pair.getTicksRemaining() / (float) warning;
-        for (ServerLevel level : sides(server)) {
+        for (ServerLevel level : sides(server, pair)) {
             PortalEffects.warningPulse(level, pair, progress);
         }
     }
@@ -318,6 +360,10 @@ public class PortalManager extends SavedData {
         Vec3 center = PortalEffects.center(level, pair);
         double radius = Config.IMPLOSION_RADIUS.get();
         float damage = (float) (Config.IMPLOSION_DAMAGE.get() * 2.0);
+        boolean demo = pair.isDemo();
+        if (demo) {
+            damage = 3.0F;
+        }
 
         PortalEffects.imploded(level, pair);
 
@@ -332,10 +378,16 @@ public class PortalManager extends SavedData {
             }
             double falloff = distance / radius;
             if (entity instanceof LivingEntity living && damage > 0) {
-                DamageSource source = new DamageSource(level.registryAccess().registryOrThrow(Registries.DAMAGE_TYPE).getHolderOrThrow(IMPLOSION));
-                boolean hit = living.hurt(source, damage * (float) (1.2 - 0.4 * falloff));
-                if (hit && living.isAlive() && living instanceof ServerPlayer player) {
-                    WormholeEvents.fire(player, WormholeEvents.SURVIVE_IMPLOSION);
+                float applied = damage * (float) (1.2 - 0.4 * falloff);
+                if (demo) {
+                    applied = Math.min(applied, Math.max(0.0F, living.getHealth() - PortalPair.DEMO_MIN_HEALTH));
+                }
+                if (applied > 0.0F) {
+                    DamageSource source = new DamageSource(level.registryAccess().registryOrThrow(Registries.DAMAGE_TYPE).getHolderOrThrow(IMPLOSION));
+                    boolean hit = living.hurt(source, applied);
+                    if (hit && living.isAlive() && living instanceof ServerPlayer player) {
+                        WormholeEvents.fire(player, WormholeEvents.SURVIVE_IMPLOSION);
+                    }
                 }
             }
             Vec3 away = entity.position().subtract(center);
@@ -362,16 +414,26 @@ public class PortalManager extends SavedData {
         }
         setDirty();
 
-        for (ServerLevel level : sides(server)) {
+        for (ServerLevel level : sides(server, pair)) {
             BlockPos origin = pair.getOrigin(level.dimension());
             if (implode) {
                 implode(level, pair, exempt);
-                PortalEffects.maybeDropShard(level, pair);
+                if (!pair.isDemo()) {
+                    PortalEffects.maybeDropShard(level, pair);
+                }
             } else {
                 PortalEffects.closedQuietly(level, pair);
             }
             removeStructure(level, origin, pair, level == skipLevel ? skipPos : null);
         }
+    }
+
+    public static List<ServerLevel> sides(MinecraftServer server, PortalPair pair) {
+        if (pair.isDemo()) {
+            ServerLevel level = server.getLevel(pair.getDemoDimension());
+            return level == null ? List.of() : List.of(level);
+        }
+        return sides(server);
     }
 
     private static List<ServerLevel> sides(MinecraftServer server) {
