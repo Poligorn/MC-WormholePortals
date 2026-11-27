@@ -51,7 +51,7 @@ public final class WormholeAeroPortalType implements AeroPortalType {
     public PortalDestination resolve(ServerLevel srcLevel, ServerSubLevel sub, BlockPos hitPos) {
         PortalManager manager = PortalManager.get(srcLevel);
         PortalPair pair = manager.findPairAt(srcLevel.dimension(), hitPos);
-        if (pair == null || pair.isForming() || pair.isExpired()) {
+        if (pair == null || pair.isDemo() || pair.isForming() || pair.isExpired()) {
             return null;
         }
 

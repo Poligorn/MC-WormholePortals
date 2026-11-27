@@ -296,6 +296,11 @@ public class WormholeBlock extends BaseEntityBlock {
             super.entityInside(state, level, pos, entity);
             return;
         }
+        if (pair.isDemo()) {
+            rejectDemoTransit(serverLevel, pos, player, pair);
+            super.entityInside(state, level, pos, entity);
+            return;
+        }
         if (isReturnLocked(player, pair)) {
             if (serverLevel.getGameTime() % 20 == 0) {
                 MobEffectInstance trace = player.getEffect(ModEffects.SPATIAL_TRACE);
@@ -359,6 +364,26 @@ public class WormholeBlock extends BaseEntityBlock {
         }
 
         super.entityInside(state, level, pos, entity);
+    }
+
+    private static void rejectDemoTransit(ServerLevel level, BlockPos pos, Player player, PortalPair pair) {
+        if (player.isOnPortalCooldown()) {
+            player.setPortalCooldown();
+            return;
+        }
+        player.setPortalCooldown();
+        Vec3 center = PortalEffects.center(level, pair);
+        Vec3 away = player.position().subtract(center);
+        Vec3 push = (away.lengthSqr() < 1.0E-4 ? new Vec3(0, 0.2, 0) : away.normalize())
+                .scale(0.55)
+                .add(0, 0.15, 0);
+        player.setDeltaMovement(player.getDeltaMovement().add(push));
+        player.hurtMarked = true;
+        if (level.getGameTime() % 20 == 0) {
+            player.displayClientMessage(Component.translatable("eveportalnether.portal.demo.no_transit")
+                    .withStyle(ChatFormatting.GOLD), true);
+            level.playSound(null, pos, SoundEvents.RESPAWN_ANCHOR_DEPLETE.value(), SoundSource.BLOCKS, 0.4F, 1.6F);
+        }
     }
 
     /**

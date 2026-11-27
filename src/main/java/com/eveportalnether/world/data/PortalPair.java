@@ -5,6 +5,8 @@ import com.eveportalnether.world.PortalColor;
 import com.eveportalnether.world.PortalShape;
 import com.eveportalnether.world.PortalTier;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtUtils;
@@ -18,6 +20,13 @@ public class PortalPair {
     public static final int DECAY_WORN = 1;
     public static final int DECAY_CRITICAL = 2;
     public static final int DECAY_DYING = 3;
+
+    /** After a successful scan, the training portal warns then implodes. 100 ticks = 5 seconds. */
+    public static final int DEMO_WARNING_TICKS = 100;
+    /** Unscanned training portals clean themselves up after 90 seconds. */
+    public static final int DEMO_LIFETIME_TICKS = 20 * 90;
+    /** Implosion may never drop a demo owner below one heart. */
+    public static final float DEMO_MIN_HEALTH = 2.0F;
 
     private final UUID id;
     private final BlockPos overworldOrigin;
@@ -33,6 +42,9 @@ public class PortalPair {
     private int formingTicks;
     private PortalColor color;
     private int code;
+    private boolean demo;
+    private UUID ownerId;
+    private ResourceKey<Level> demoDimension = Level.OVERWORLD;
 
     public PortalPair(UUID id, BlockPos overworldOrigin, BlockPos netherOrigin, Direction.Axis axis,
                       int width, int height, PortalTier tier, int ticksRemaining, int jumpsRemaining) {
@@ -60,6 +72,54 @@ public class PortalPair {
 
     public UUID getId() {
         return id;
+    }
+
+    public boolean isDemo() {
+        return demo;
+    }
+
+    public void setDemo(boolean demo) {
+        this.demo = demo;
+    }
+
+    @javax.annotation.Nullable
+    public UUID getOwnerId() {
+        return ownerId;
+    }
+
+    public void setOwnerId(@javax.annotation.Nullable UUID ownerId) {
+        this.ownerId = ownerId;
+    }
+
+    public ResourceKey<Level> getDemoDimension() {
+        return demoDimension == null ? Level.OVERWORLD : demoDimension;
+    }
+
+    public void setDemoDimension(ResourceKey<Level> demoDimension) {
+        this.demoDimension = demoDimension == null ? Level.OVERWORLD : demoDimension;
+    }
+
+    public boolean existsIn(ResourceKey<Level> dimension) {
+        if (isDemo()) {
+            return dimension.equals(getDemoDimension());
+        }
+        return dimension == Level.OVERWORLD || dimension == Level.NETHER;
+    }
+
+    public int getWarningWindow() {
+        return isDemo() ? DEMO_WARNING_TICKS : Config.WARNING_DURATION_TICKS.get();
+    }
+
+    /**
+     * Start the short dying window so the player sees the warning, shake and implosion.
+     */
+    public void beginDemoCollapse() {
+        if (!isDemo()) {
+            return;
+        }
+        setFormingTicks(0);
+        setTicksRemaining(DEMO_WARNING_TICKS);
+        setJumpsRemaining(Math.max(2, getJumpsRemaining()));
     }
 
     public PortalColor getColor() {
@@ -156,7 +216,7 @@ public class PortalPair {
     }
 
     public boolean isWarning() {
-        return !isForming() && ticksRemaining > 0 && ticksRemaining <= Config.WARNING_DURATION_TICKS.get();
+        return !isForming() && ticksRemaining > 0 && ticksRemaining <= getWarningWindow();
     }
 
     public boolean isForming() {
@@ -186,6 +246,9 @@ public class PortalPair {
     }
 
     public BlockPos getOrigin(ResourceKey<Level> dimension) {
+        if (isDemo()) {
+            return Level.NETHER.equals(getDemoDimension()) ? netherOrigin : overworldOrigin;
+        }
         return dimension == Level.NETHER ? netherOrigin : overworldOrigin;
     }
 
@@ -194,7 +257,7 @@ public class PortalPair {
     }
 
     public boolean contains(ResourceKey<Level> dimension, BlockPos pos) {
-        if (dimension != Level.OVERWORLD && dimension != Level.NETHER) {
+        if (!existsIn(dimension)) {
             return false;
         }
         return PortalShape.contains(getOrigin(dimension), axis, width, height, pos);
@@ -216,6 +279,13 @@ public class PortalPair {
         tag.putInt("FormingTicks", formingTicks);
         tag.putString("Color", color.getSerializedName());
         tag.putInt("Code", code);
+        if (demo) {
+            tag.putBoolean("Demo", true);
+            if (ownerId != null) {
+                tag.putUUID("Owner", ownerId);
+            }
+            tag.putString("DemoDimension", getDemoDimension().location().toString());
+        }
         return tag;
     }
 
@@ -239,6 +309,18 @@ public class PortalPair {
         pair.setColor(PortalColor.byName(tag.getString("Color"), tier.legacyColor()));
         if (tag.contains("Code")) {
             pair.setCode(tag.getInt("Code"));
+        }
+        if (tag.getBoolean("Demo")) {
+            pair.setDemo(true);
+            if (tag.hasUUID("Owner")) {
+                pair.setOwnerId(tag.getUUID("Owner"));
+            }
+            if (tag.contains("DemoDimension")) {
+                ResourceLocation dimId = ResourceLocation.tryParse(tag.getString("DemoDimension"));
+                if (dimId != null) {
+                    pair.setDemoDimension(ResourceKey.create(Registries.DIMENSION, dimId));
+                }
+            }
         }
         return pair;
     }

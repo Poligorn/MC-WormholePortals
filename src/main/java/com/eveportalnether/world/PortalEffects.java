@@ -179,7 +179,9 @@ public final class PortalEffects {
                 WormholeEvents.fire(player, WormholeEvents.WITNESS_OPENING);
             }
         }
-        announce(level, center);
+        if (!pair.isDemo()) {
+            announce(level, center);
+        }
     }
 
     private static void announce(ServerLevel level, Vec3 center) {
